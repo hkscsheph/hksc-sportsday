@@ -74,21 +74,25 @@
     </section>
 
     <section id="screen-camera" class="screen camera" hidden>
-      <canvas id="preview"></canvas>
-      <div class="camera-top">
-        <div class="camera-top-row">
-          <button type="button" class="text-btn light" id="close-camera">關閉</button>
-          <p class="pill" id="camera-status">正在啟動相機…</p>
+      <div id="camera-feed" class="camera-feed">
+        <video id="video" playsinline muted autoplay></video>
+        <canvas id="preview"></canvas>
+        <p id="camera-waiting" class="camera-waiting">正在連接相機…</p>
+        <div class="camera-top">
+          <div class="camera-top-row">
+            <button type="button" class="text-btn light" id="close-camera">關閉</button>
+            <p class="pill" id="camera-status">正在啟動相機…</p>
+          </div>
+          <p class="camera-event" id="camera-event"></p>
         </div>
-        <p class="camera-event" id="camera-event"></p>
-      </div>
-      <div class="countdown" id="countdown" hidden>
-        <p id="countdown-num">3</p>
-      </div>
-      <div class="camera-error" id="camera-error" hidden>
-        <p id="camera-error-text"></p>
-        <button type="button" class="btn primary" id="camera-retry">再試一次</button>
-        <button type="button" class="btn ghost" id="camera-practice">練習終點</button>
+        <div class="countdown" id="countdown" hidden>
+          <p id="countdown-num">3</p>
+        </div>
+        <div class="camera-error" id="camera-error" hidden>
+          <p id="camera-error-text"></p>
+          <button type="button" class="btn primary" id="camera-retry">再試一次</button>
+          <button type="button" class="btn ghost" id="camera-practice">練習終點</button>
+        </div>
       </div>
       <div class="dock">
         <div class="clock-row">
@@ -124,7 +128,6 @@
         <button type="button" class="btn ghost" id="secondary" hidden>暫停</button>
         <button type="button" class="text-btn light" id="discard" hidden>捨棄這場比賽</button>
       </div>
-      <video id="video" playsinline muted autoplay></video>
     </section>
 
     <section id="screen-review" class="screen review" hidden>

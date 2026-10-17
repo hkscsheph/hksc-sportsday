@@ -283,34 +283,83 @@ input[type="range"]::-moz-range-thumb {
 
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-.camera { position: relative; overflow: hidden; background: #000; }
+.camera {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #000;
+}
+
+.camera-feed {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 38vh;
+  min-height: 38dvh;
+  overflow: hidden;
+  background: #000;
+}
+
+#video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.camera.stream-live #video {
+  opacity: 1;
+}
 
 #preview {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 1;
+  pointer-events: auto;
 }
 
-#video {
+.camera-waiting {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  color: #d5dbe6;
+  background: #090b10;
   pointer-events: none;
 }
 
-.camera-top, .dock {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 2;
+.camera.stream-live .camera-waiting {
+  display: none;
 }
 
 .camera-top {
+  position: absolute;
   top: 0;
+  left: 0;
+  right: 0;
+  z-index: 4;
   padding: calc(10px + var(--safe-top)) 14px 28px;
   background: linear-gradient(#000c, transparent);
+  pointer-events: none;
+}
+
+.camera-top button,
+.camera-top .pill {
+  pointer-events: auto;
+}
+
+.dock {
+  position: relative;
+  z-index: 3;
+  flex-shrink: 0;
 }
 
 .camera-top-row, .clock-row, .results-head, .export-row, .preset-row, .review-bar {
@@ -342,9 +391,9 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .dock {
-  bottom: 0;
-  padding: 28px 14px calc(12px + var(--safe-bottom));
-  background: linear-gradient(transparent, rgba(8, 10, 14, 0.94) 28%);
+  padding: 14px 14px calc(12px + var(--safe-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
 }
 
 .clock {
@@ -459,6 +508,11 @@ input[type="range"]::-moz-range-thumb {
   gap: 8px;
   padding: 24px;
   background: rgba(9, 11, 16, 0.92);
+}
+
+.camera-error[hidden],
+.countdown[hidden] {
+  display: none !important;
 }
 
 .camera-error p { margin: 0 0 8px; line-height: 1.45; }

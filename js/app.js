@@ -32,6 +32,8 @@ const els = {
   openHelp: $("open-help"),
   help: $("help"),
   helpClose: $("help-close"),
+  cameraFeed: $("camera-feed"),
+  cameraWaiting: $("camera-waiting"),
   preview: $("preview"),
   video: $("video"),
   closeCamera: $("close-camera"),
@@ -262,6 +264,8 @@ async function openCamera() {
 
 async function startStream() {
   releaseStream();
+  els.camera.classList.remove("stream-live");
+  els.cameraWaiting.hidden = false;
   els.cameraStatus.textContent = "正在啟動相機…";
   const videoConstraints = {
     facingMode: { ideal: state.facing },
@@ -294,8 +298,11 @@ async function startStream() {
     return;
   }
   els.video.srcObject = state.stream;
+  els.video.addEventListener("loadeddata", markFeedLive);
+  els.video.addEventListener("resize", markFeedLive);
   await els.video.play();
   els.takeSnapshot.hidden = false;
+  markFeedLive();
   if (state.screen !== "camera") {
     releaseStream();
     return;
@@ -359,6 +366,8 @@ function showCameraError(error) {
   } else if (name === "NotReadableError") {
     message = "相機正被其他應用程式使用。";
   }
+  els.camera.classList.remove("stream-live");
+  els.cameraWaiting.hidden = true;
   els.cameraError.hidden = false;
   els.cameraErrorText.textContent = message;
   els.cameraStatus.textContent = "無法使用相機";
@@ -369,7 +378,24 @@ function releaseStream() {
   state.frameGen += 1;
   state.stream?.getTracks().forEach((track) => track.stop());
   state.stream = null;
+  els.video.removeEventListener("loadeddata", markFeedLive);
+  els.video.removeEventListener("resize", markFeedLive);
   els.video.srcObject = null;
+  els.video.style.width = "";
+  els.video.style.height = "";
+  els.video.style.left = "";
+  els.video.style.top = "";
+  els.camera.classList.remove("stream-live");
+  els.cameraWaiting.hidden = false;
+}
+
+function markFeedLive() {
+  if (state.screen !== "camera" || !state.stream || !els.video.videoWidth) return;
+  els.camera.classList.add("stream-live");
+  els.cameraWaiting.hidden = true;
+  els.cameraError.hidden = true;
+  drawPreview();
+  updateBufferUi();
 }
 
 function noteFps(now) {
@@ -384,7 +410,7 @@ function noteFps(now) {
 }
 
 function resizePreview() {
-  const rect = els.preview.getBoundingClientRect();
+  const rect = (els.cameraFeed || els.preview).getBoundingClientRect();
   const dpr = Math.min(devicePixelRatio || 1, 2);
   const width = Math.max(2, Math.round(rect.width * dpr));
   const height = Math.max(2, Math.round(rect.height * dpr));
@@ -392,16 +418,31 @@ function resizePreview() {
     els.preview.width = width;
     els.preview.height = height;
   }
+  return rect;
+}
+
+function syncVideoView() {
+  const video = els.video;
+  if (!video.videoWidth) return;
+  const fr = activeFraming();
+  const feed = els.cameraFeed.getBoundingClientRect();
+  if (feed.width < 2 || feed.height < 2) return;
+  const scale = Math.max(feed.width / fr.w, feed.height / fr.h);
+  video.style.width = `${video.videoWidth * scale}px`;
+  video.style.height = `${video.videoHeight * scale}px`;
+  video.style.left = `${(feed.width - fr.w * scale) / 2 - fr.x * scale}px`;
+  video.style.top = `${(feed.height - fr.h * scale) / 2 - fr.y * scale}px`;
 }
 
 function drawPreview() {
   const video = els.video;
   if (!video.videoWidth) return;
-  resizePreview();
+  const feed = resizePreview();
+  syncVideoView();
   const ctx = previewCtx;
   const fr = activeFraming();
   const canvas = els.preview;
-  ctx.drawImage(video, fr.x, fr.y, fr.w, fr.h, 0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   const slitPx = ((fr.slitX - fr.x) / fr.w) * canvas.width;
   const slicePx = (Math.min(state.settings.sliceWidth, bandForMode()) / fr.w) * canvas.width;
   const shadeLeft = slitPx - slicePx / 2;
@@ -1668,6 +1709,7 @@ function bindCameraGestures() {
     state.panYNorm = clamp(drag.pan + ((event.clientY - drag.y) / rect.height) * (frH / (els.video.videoHeight || 1)), 0, 1);
     els.line.value = String(state.slitNorm * 100);
     els.lineValue.textContent = `${Math.round(state.slitNorm * 100)}%`;
+    drawPreview();
   });
   const end = (event) => pointers.delete(event.pointerId);
   els.preview.addEventListener("pointerup", end);
@@ -1792,11 +1834,13 @@ function bind() {
     if (state.lock) return;
     state.slitNorm = Number(els.line.value) / 100;
     els.lineValue.textContent = `${Math.round(state.slitNorm * 100)}%`;
+    drawPreview();
   });
   els.camZoom.addEventListener("input", () => {
     if (state.lock) return;
     state.camZoom = Number(els.camZoom.value);
     els.zoomValue.textContent = `${state.camZoom.toFixed(1)}×`;
+    drawPreview();
   });
   els.sensitivity.addEventListener("input", () => {
     els.sensitivityValue.textContent = Number(els.sensitivity.value).toFixed(2);
@@ -1858,6 +1902,12 @@ function bind() {
     if (state.screen === "review") requestRender();
   });
   resizeObserver.observe(els.photoWrap);
+  if (els.cameraFeed) {
+    const feedObserver = new ResizeObserver(() => {
+      if (state.screen === "camera" && els.video.videoWidth) drawPreview();
+    });
+    feedObserver.observe(els.cameraFeed);
+  }
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && state.screen === "camera" && state.clockStart != null) {
       stayAwake();
