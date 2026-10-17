@@ -501,21 +501,40 @@ input[type="range"]::-moz-range-thumb {
 
 .camera-error {
   position: absolute;
-  inset: 0;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
   z-index: 4;
-  display: grid;
-  align-content: center;
-  gap: 8px;
-  padding: 24px;
-  background: rgba(9, 11, 16, 0.92);
+  display: none;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 176, 0, 0.45);
+  background: rgba(9, 11, 16, 0.94);
+  pointer-events: none;
 }
 
-.camera-error[hidden],
+.camera-error.is-visible {
+  display: grid;
+  pointer-events: auto;
+}
+
+.camera.stream-live .camera-error {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
 .countdown[hidden] {
   display: none !important;
 }
 
-.camera-error p { margin: 0 0 8px; line-height: 1.45; }
+.camera-error p { margin: 0; line-height: 1.45; }
+
+.camera-error-actions {
+  display: grid;
+  gap: 8px;
+}
 
 .review {
   display: flex;

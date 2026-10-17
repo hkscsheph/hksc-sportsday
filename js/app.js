@@ -257,13 +257,14 @@ async function openCamera() {
     await openHelp();
   }
   show("camera");
-  els.cameraError.hidden = true;
+  hideCameraError();
   els.cameraEvent.textContent = state.settings.eventName || "比賽";
   await startStream();
 }
 
 async function startStream() {
   releaseStream();
+  hideCameraError();
   els.camera.classList.remove("stream-live");
   els.cameraWaiting.hidden = false;
   els.cameraStatus.textContent = "正在啟動相機…";
@@ -300,7 +301,12 @@ async function startStream() {
   els.video.srcObject = state.stream;
   els.video.addEventListener("loadeddata", markFeedLive);
   els.video.addEventListener("resize", markFeedLive);
-  await els.video.play();
+  try {
+    await els.video.play();
+  } catch (error) {
+    showCameraError(error);
+    return;
+  }
   els.takeSnapshot.hidden = false;
   markFeedLive();
   if (state.screen !== "camera") {
@@ -335,6 +341,7 @@ function startCameraLoop() {
       noteFps(now);
       captureFrame(now);
     }
+    if (state.stream?.active && els.video.videoWidth) hideCameraError();
     drawPreview();
     maybeCaptureSnapshot(now);
     updateClock(now);
@@ -354,7 +361,17 @@ function startCameraLoop() {
   requestAnimationFrame(loop);
 }
 
+function hideCameraError() {
+  els.cameraError.hidden = true;
+  els.cameraError.setAttribute("hidden", "");
+  els.cameraError.classList.remove("is-visible");
+}
+
 function showCameraError(error) {
+  if (state.stream?.active) {
+    hideCameraError();
+    return;
+  }
   const name = error?.name || "";
   let message = "無法啟動相機。你仍可試試練習終點。";
   if (location.protocol === "file:") {
@@ -368,8 +385,10 @@ function showCameraError(error) {
   }
   els.camera.classList.remove("stream-live");
   els.cameraWaiting.hidden = true;
-  els.cameraError.hidden = false;
   els.cameraErrorText.textContent = message;
+  els.cameraError.hidden = false;
+  els.cameraError.removeAttribute("hidden");
+  els.cameraError.classList.add("is-visible");
   els.cameraStatus.textContent = "無法使用相機";
   els.takeSnapshot.hidden = true;
 }
@@ -393,7 +412,7 @@ function markFeedLive() {
   if (state.screen !== "camera" || !state.stream || !els.video.videoWidth) return;
   els.camera.classList.add("stream-live");
   els.cameraWaiting.hidden = true;
-  els.cameraError.hidden = true;
+  hideCameraError();
   drawPreview();
   updateBufferUi();
 }
@@ -1802,7 +1821,10 @@ function bind() {
   els.practice.addEventListener("click", () => startPractice());
   els.openHelp.addEventListener("click", () => openHelp());
   els.closeCamera.addEventListener("click", () => leaveCamera());
-  els.cameraRetry.addEventListener("click", () => startStream());
+  els.cameraRetry.addEventListener("click", () => {
+    hideCameraError();
+    startStream();
+  });
   els.cameraPractice.addEventListener("click", () => {
     shutdownCamera();
     startPractice();
