@@ -16,7 +16,7 @@
       href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="css/styles.css?v=5" />
+    <link rel="stylesheet" href="css/styles.css?v=6" />
   </head>
   <body>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -33,10 +33,41 @@
           請從本機伺服器開啟此頁。相機與此應用程式無法在 file:// 網址下運作。
         </div>
 
-        <label class="field">
+        <div class="field">
           <span>項目</span>
-          <input id="event-name" type="text" maxlength="60" autocomplete="off" />
-        </label>
+          <div class="event-line">
+            <input id="event-name" type="text" maxlength="80" autocomplete="off" aria-label="項目" />
+            <button type="button" class="event-pick" id="event-pick" aria-expanded="false" aria-controls="event-options">分類</button>
+          </div>
+          <div id="event-options" class="event-options" hidden>
+            <div class="event-group">
+              <span id="event-gender-label">組別</span>
+              <div class="segment" role="group" aria-labelledby="event-gender-label">
+                <button type="button" class="seg" data-event-group="gender" data-event-value="男子">男子</button>
+                <button type="button" class="seg" data-event-group="gender" data-event-value="女子">女子</button>
+              </div>
+            </div>
+            <div class="event-group">
+              <span id="event-division-label">級別</span>
+              <div class="segment" role="group" aria-labelledby="event-division-label">
+                <button type="button" class="seg" data-event-group="division" data-event-value="高中">高中</button>
+                <button type="button" class="seg" data-event-group="division" data-event-value="初中">初中</button>
+                <button type="button" class="seg" data-event-group="division" data-event-value="甲組">甲組</button>
+                <button type="button" class="seg" data-event-group="division" data-event-value="乙組">乙組</button>
+                <button type="button" class="seg" data-event-group="division" data-event-value="丙組">丙組</button>
+              </div>
+            </div>
+            <div class="event-group">
+              <span id="event-distance-label">距離</span>
+              <div class="segment" role="group" aria-labelledby="event-distance-label">
+                <button type="button" class="seg" data-event-group="distance" data-event-value="100米">100米</button>
+                <button type="button" class="seg" data-event-group="distance" data-event-value="200米">200米</button>
+                <button type="button" class="seg" data-event-group="distance" data-event-value="400米">400米</button>
+                <button type="button" class="seg" data-event-group="distance" data-event-value="800米">800米</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="field">
           <span id="start-mode-label">開始計時</span>

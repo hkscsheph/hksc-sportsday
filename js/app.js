@@ -12,6 +12,11 @@ import {
 } from "./timing.js";
 
 const SETTINGS_KEY = "hksc-photo-finish";
+const EVENT_PICKS = {
+  gender: ["男子", "女子"],
+  division: ["高中", "初中", "甲組", "乙組", "丙組"],
+  distance: ["100米", "200米", "400米", "800米"],
+};
 const UI_FONT = '"Noto Sans TC", Barlow, sans-serif';
 const DISPLAY_FONT = '"Noto Sans TC", "Barlow Condensed", sans-serif';
 const COLORS = ["#ffb000", "#3ee0a2", "#4cc9f0", "#ff6b6b", "#c77dff", "#f4f1de", "#ff8c42", "#80ed99"];
@@ -25,6 +30,8 @@ const els = {
   review: $("screen-review"),
   fileBanner: $("file-banner"),
   eventName: $("event-name"),
+  eventPick: $("event-pick"),
+  eventOptions: $("event-options"),
   handsFree: $("hands-free"),
   bufferHint: $("buffer-hint"),
   openCamera: $("open-camera"),
@@ -155,7 +162,8 @@ function loadSettings() {
   const defaults = {
     eventName: "比賽 1",
     startMode: "tap",
-    handsFree: true,
+    handsFree: false,
+    handsFreeRev: 2,
     bufferMode: "sharp",
     sliceWidth: 7,
     mirror: false,
@@ -165,6 +173,11 @@ function loadSettings() {
   try {
     const saved = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
     if (saved.eventName === "Race 1") saved.eventName = defaults.eventName;
+    if (saved.handsFreeRev !== 2) {
+      saved.handsFree = false;
+      saved.handsFreeRev = 2;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(saved));
+    }
     return saved;
   } catch {
     return defaults;
@@ -200,6 +213,7 @@ function bandForMode() {
 
 function applyHomeSettings() {
   els.eventName.value = state.settings.eventName;
+  syncEventPicks();
   els.handsFree.checked = state.settings.handsFree;
   document.querySelectorAll("[data-start]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.start === state.settings.startMode));
@@ -212,6 +226,44 @@ function applyHomeSettings() {
       ? "較長模式使用較窄的縫，終點錄影可以持續更久。"
       : "清晰模式使用較寬的縫，錄影時間較短。";
   els.fileBanner.hidden = location.protocol !== "file:";
+}
+
+function eventPicksFromName(name) {
+  const picks = {};
+  for (const [group, values] of Object.entries(EVENT_PICKS)) {
+    picks[group] = values.find((value) => name.includes(value)) || "";
+  }
+  return picks;
+}
+
+function syncEventPicks() {
+  const picks = eventPicksFromName(els.eventName.value);
+  document.querySelectorAll("[data-event-value]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(picks[button.dataset.eventGroup] === button.dataset.eventValue));
+  });
+  const label = ["gender", "division", "distance"]
+    .map((group) => picks[group])
+    .filter(Boolean)
+    .map((value) => value.replace(/米|組/g, ""))
+    .join("·");
+  els.eventPick.textContent = label || "分類";
+}
+
+function setEventPick(group, value) {
+  const current = eventPicksFromName(els.eventName.value);
+  const next = current[group] === value ? "" : value;
+  let name = els.eventName.value;
+  for (const token of Object.values(EVENT_PICKS).flat()) {
+    name = name.replaceAll(token, " ");
+  }
+  name = name.replace(/\s+/g, " ").trim();
+  const tags = ["gender", "division", "distance"]
+    .map((key) => (key === group ? next : current[key]))
+    .filter(Boolean);
+  els.eventName.value = [name, ...tags].filter(Boolean).join(" ").slice(0, 80);
+  state.settings.eventName = els.eventName.value;
+  syncEventPicks();
+  saveSettings();
 }
 
 function openHelp() {
@@ -1869,7 +1921,16 @@ function bind() {
   applyHomeSettings();
   els.eventName.addEventListener("input", () => {
     state.settings.eventName = els.eventName.value;
+    syncEventPicks();
     saveSettings();
+  });
+  els.eventPick.addEventListener("click", () => {
+    const open = els.eventOptions.hidden;
+    els.eventOptions.hidden = !open;
+    els.eventPick.setAttribute("aria-expanded", String(open));
+  });
+  document.querySelectorAll("[data-event-value]").forEach((button) => {
+    button.addEventListener("click", () => setEventPick(button.dataset.eventGroup, button.dataset.eventValue));
   });
   els.handsFree.addEventListener("change", () => {
     state.settings.handsFree = els.handsFree.checked;
@@ -1878,8 +1939,6 @@ function bind() {
   document.querySelectorAll("[data-start]").forEach((button) => {
     button.addEventListener("click", () => {
       state.settings.startMode = button.dataset.start;
-      if (state.settings.startMode !== "tap") state.settings.handsFree = true;
-      els.handsFree.checked = state.settings.handsFree;
       saveSettings();
       applyHomeSettings();
     });
