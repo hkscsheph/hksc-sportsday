@@ -160,7 +160,7 @@ let resizeObserver;
 
 function loadSettings() {
   const defaults = {
-    eventName: "比賽 1",
+    eventName: "",
     startMode: "tap",
     handsFree: false,
     handsFreeRev: 2,
@@ -172,7 +172,7 @@ function loadSettings() {
   };
   try {
     const saved = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
-    if (saved.eventName === "Race 1") saved.eventName = defaults.eventName;
+    if (saved.eventName === "Race 1" || saved.eventName === "比賽 1") saved.eventName = "";
     if (saved.handsFreeRev !== 2) {
       saved.handsFree = false;
       saved.handsFreeRev = 2;
