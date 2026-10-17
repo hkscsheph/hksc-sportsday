@@ -104,7 +104,7 @@ export function createDemoRecording() {
       }
     }
     if (bestDistance > 1 / fps / 2 + 1e-6 || !columnHasCyan(store, best)) {
-      throw new Error(`Practice finish is misaligned for bib ${runner.name}`);
+      throw new Error(`練習終點對不齊，號碼布 ${runner.name}`);
     }
   }
 

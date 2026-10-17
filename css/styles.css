@@ -12,8 +12,8 @@
   --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --font: "Barlow", "Segoe UI", sans-serif;
-  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font: "Noto Sans TC", "Barlow", "Segoe UI", sans-serif;
+  --display: "Noto Sans TC", "Barlow Condensed", "Arial Narrow", sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
 }
 
@@ -417,8 +417,8 @@ input[type="range"]::-moz-range-thumb {
 .countdown p {
   margin: 0;
   font-family: var(--display);
-  font-size: 28vw;
-  line-height: 0.8;
+  font-size: 22vw;
+  line-height: 1;
 }
 
 .camera-error {

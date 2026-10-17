@@ -12,6 +12,8 @@ import {
 } from "./timing.js";
 
 const SETTINGS_KEY = "hksc-photo-finish";
+const UI_FONT = '"Noto Sans TC", Barlow, sans-serif';
+const DISPLAY_FONT = '"Noto Sans TC", "Barlow Condensed", sans-serif';
 const COLORS = ["#ffb000", "#3ee0a2", "#4cc9f0", "#ff6b6b", "#c77dff", "#f4f1de", "#ff8c42", "#80ed99"];
 
 const $ = (id) => document.getElementById(id);
@@ -138,7 +140,7 @@ let resizeObserver;
 
 function loadSettings() {
   const defaults = {
-    eventName: "Race 1",
+    eventName: "比賽 1",
     startMode: "tap",
     handsFree: true,
     bufferMode: "sharp",
@@ -148,7 +150,9 @@ function loadSettings() {
     seenHelp: false,
   };
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    const saved = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+    if (saved.eventName === "Race 1") saved.eventName = defaults.eventName;
+    return saved;
   } catch {
     return defaults;
   }
@@ -192,8 +196,8 @@ function applyHomeSettings() {
   });
   els.bufferHint.textContent =
     state.settings.bufferMode === "long"
-      ? "Longer keeps a thinner slit so the finish can run for more time."
-      : "Sharp keeps a wider slit and a shorter recording.";
+      ? "較長模式使用較窄的縫，終點錄影可以持續更久。"
+      : "清晰模式使用較寬的縫，錄影時間較短。";
   els.fileBanner.hidden = location.protocol !== "file:";
 }
 
@@ -231,7 +235,7 @@ function activeFraming() {
 
 async function openCamera() {
   if (location.protocol === "file:") {
-    toast("Use a local server so the browser can open the camera.");
+    toast("請使用本機伺服器，瀏覽器才能開啟相機。");
     return;
   }
   if (!state.settings.seenHelp) {
@@ -241,13 +245,13 @@ async function openCamera() {
   }
   show("camera");
   els.cameraError.hidden = true;
-  els.cameraEvent.textContent = state.settings.eventName || "Race";
+  els.cameraEvent.textContent = state.settings.eventName || "比賽";
   await startStream();
 }
 
 async function startStream() {
   releaseStream();
-  els.cameraStatus.textContent = "Starting camera…";
+  els.cameraStatus.textContent = "正在啟動相機…";
   const videoConstraints = {
     facingMode: { ideal: state.facing },
     width: { ideal: 1920 },
@@ -332,19 +336,19 @@ function startCameraLoop() {
 
 function showCameraError(error) {
   const name = error?.name || "";
-  let message = "The camera could not be started. You can still try a practice finish.";
+  let message = "無法啟動相機。你仍可試試練習終點。";
   if (location.protocol === "file:") {
-    message = "Open this app from a local server. Browsers block the camera on a file:// page.";
+    message = "請從本機伺服器開啟此應用程式。瀏覽器會封鎖 file:// 頁面的相機。";
   } else if (name === "NotAllowedError") {
-    message = "Camera permission was blocked. Allow the camera in the browser settings and try again.";
+    message = "相機權限被拒絕。請在瀏覽器設定中允許相機，然後再試一次。";
   } else if (name === "NotFoundError") {
-    message = "No camera was found on this device.";
+    message = "這台裝置找不到相機。";
   } else if (name === "NotReadableError") {
-    message = "The camera is in use by another app.";
+    message = "相機正被其他應用程式使用。";
   }
   els.cameraError.hidden = false;
   els.cameraErrorText.textContent = message;
-  els.cameraStatus.textContent = "Camera unavailable";
+  els.cameraStatus.textContent = "無法使用相機";
 }
 
 function releaseStream() {
@@ -408,8 +412,8 @@ function drawPreview() {
   ctx.lineTo(slitPx - 7, 28);
   ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.font = "600 13px Barlow, sans-serif";
-  ctx.fillText("FINISH", slitPx + 12, 34);
+  ctx.font = `600 13px ${UI_FONT}`;
+  ctx.fillText("終點", slitPx + 12, 34);
 }
 
 function updateClock(now) {
@@ -438,7 +442,7 @@ function captureFrame(now) {
   scratch.ctx.drawImage(els.video, safeX, fr.y, store.band, fr.h, 0, 0, store.band, store.height);
   const rolling = store.push(scratch.ctx.getImageData(0, 0, store.band, store.height).data, time);
   if (rolling && store.dropped === 1) {
-    toast("Memory is full. Keeping the latest part of the finish — stop after the last runner.");
+    toast("記憶體已滿。只保留終點最新的一段——最後一位選手通過後請停止。");
   }
 }
 
@@ -468,11 +472,11 @@ function estimateHoldSeconds() {
 function updateBufferUi() {
   const hold = estimateHoldSeconds();
   const settings = state.stream?.getVideoTracks?.()[0]?.getSettings?.() || {};
-  const fpsText = state.fps ? `${Math.round(state.fps)} fps` : "measuring fps";
+  const fpsText = state.fps ? `${Math.round(state.fps)} fps` : "正在測量幀率";
   const sizeText = settings.width ? `${settings.width}×${settings.height}` : "";
-  els.cameraStatus.textContent = [sizeText, fpsText].filter(Boolean).join(" · ") || "Camera ready";
+  els.cameraStatus.textContent = [sizeText, fpsText].filter(Boolean).join(" · ") || "相機就緒";
   if (state.clockStart == null) {
-    els.holdLabel.textContent = hold ? `Holds about ${Math.round(hold)}s` : "";
+    els.holdLabel.textContent = hold ? `約可保留 ${Math.round(hold)} 秒` : "";
   }
   const store = state.store;
   const showBuffer = Boolean(store && (state.capturing || store.count));
@@ -485,9 +489,9 @@ function updateBufferUi() {
   const from = formatRaceTime(store.oldestTime(), 1);
   const to = formatRaceTime(store.newestTime(), 1);
   els.bufferLabel.textContent = store.dropped
-    ? `Latest only · ${from}–${to}`
+    ? `僅保留最新 · ${from}–${to}`
     : `${from}–${to}`;
-  els.holdLabel.textContent = store.dropped ? "Buffer rolling" : `${store.count} frames`;
+  els.holdLabel.textContent = store.dropped ? "緩衝區滾動中" : `${store.count} 幀`;
 }
 
 function drawLiveStrip() {
@@ -525,38 +529,38 @@ function syncCameraControls() {
   els.line.disabled = locked;
   els.camZoom.disabled = locked;
   if (countdown) {
-    els.primary.textContent = "Cancel countdown";
+    els.primary.textContent = "取消倒數";
     els.secondary.hidden = true;
-    els.cameraHint.textContent = "The clock starts on the tone.";
+    els.cameraHint.textContent = "提示音響起時計時開始。";
     return;
   }
   if (state.listening && state.clockStart == null) {
-    els.primary.textContent = "Cancel listening";
+    els.primary.textContent = "取消聆聽";
     els.secondary.hidden = true;
-    els.cameraHint.textContent = "Clap or fire the start when the meter jumps.";
+    els.cameraHint.textContent = "音量表跳動時拍手或鳴槍起跑。";
     return;
   }
   if (!clockOn) {
-    const labels = { tap: "Start clock", sound: "Arm start", countdown: "Start countdown" };
+    const labels = { tap: "開始計時", sound: "準備起跑", countdown: "開始倒數" };
     els.primary.textContent = labels[state.settings.startMode];
     els.secondary.hidden = true;
     els.cameraHint.textContent = state.settings.handsFree
-      ? "Recording starts with the clock. Prop the phone so the white line stays on the finish."
-      : "Start the clock at the gun, then tap Record when the runners reach the line.";
+      ? "計時開始就會錄影。把手機架好，讓白線保持在終點上。"
+      : "鳴槍時開始計時，選手到達終點線時再按錄影。";
     return;
   }
   if (!state.store && !state.capturing) {
-    els.primary.textContent = "Record finish";
+    els.primary.textContent = "錄下終點";
     els.secondary.hidden = true;
-    els.cameraHint.textContent = "The clock is running. Record across the moment they finish.";
+    els.cameraHint.textContent = "計時進行中。在他們通過終點的前後錄影。";
     return;
   }
-  els.primary.textContent = "Stop & build photo";
+  els.primary.textContent = "停止並合成照片";
   els.secondary.hidden = false;
-  els.secondary.textContent = state.capturing ? "Pause" : "Resume";
+  els.secondary.textContent = state.capturing ? "暫停" : "繼續";
   els.cameraHint.textContent = state.capturing
-    ? "Hold still. Stop just after the last runner."
-    : "Recording is paused. The clock is still running.";
+    ? "保持穩定。最後一位選手通過後立刻停止。"
+    : "錄影已暫停。計時仍在進行。";
 }
 
 function beginStart() {
@@ -576,7 +580,7 @@ function startClock(perfTime) {
 
 function startCapture() {
   if (!els.video.videoWidth) {
-    toast("Wait for the camera picture.");
+    toast("請等待相機畫面。");
     return;
   }
   if (!state.store) {
@@ -632,7 +636,7 @@ async function armSound() {
     state.prevPeak = 0;
     syncCameraControls();
   } catch {
-    toast("Microphone permission is needed to start on a sound.");
+    toast("需要麥克風權限，才能以聲音起跑。");
   }
 }
 
@@ -651,7 +655,7 @@ function updateAudio() {
   if (peak >= threshold && state.prevPeak < threshold * 0.65) {
     const latency = (state.analyser.fftSize / state.audioCtx.sampleRate) * 1000;
     startClock(performance.now() - latency);
-    toast("Start detected");
+    toast("已偵測到起跑");
   }
   state.prevPeak = peak;
 }
@@ -693,7 +697,7 @@ function beep(frequency, duration, when) {
 function updateCountdown(now) {
   if (!state.countdownTimer && els.countdown.hidden) return;
   const left = (state.countdownDeadline - now) / 1000;
-  els.countdownNum.textContent = left > 2 ? "3" : left > 1 ? "2" : left > 0 ? "1" : "GO";
+  els.countdownNum.textContent = left > 2 ? "3" : left > 1 ? "2" : left > 0 ? "1" : "出發";
 }
 
 function cancelCountdown() {
@@ -710,7 +714,7 @@ function stopAudioInput() {
 }
 
 function discardRace() {
-  if (state.clockStart != null && !confirm("Discard this race?")) return;
+  if (state.clockStart != null && !confirm("捨棄這場比賽？")) return;
   clearTimeout(state.countdownTimer);
   state.countdownTimer = 0;
   els.countdown.hidden = true;
@@ -725,7 +729,7 @@ function discardRace() {
 }
 
 function leaveCamera() {
-  if ((state.clockStart != null || state.store?.count) && !confirm("Leave this race? The recording will be discarded.")) {
+  if ((state.clockStart != null || state.store?.count) && !confirm("離開這場比賽？錄影將被捨棄。")) {
     return;
   }
   shutdownCamera();
@@ -748,7 +752,7 @@ function shutdownCamera() {
 
 function stopAndBuild() {
   if (!state.store || state.store.count < 2) {
-    toast("Record a little longer before building the photo.");
+    toast("請再錄久一點，再合成照片。");
     return;
   }
   state.capturing = false;
@@ -779,13 +783,13 @@ function enterReview(store, { demo, eventName }) {
   state.timeZoom = 1;
   const times = state.view.times;
   state.hairlineTime = times[Math.floor(times.length / 2)] || 0;
-  els.reviewTitle.textContent = eventName || state.settings.eventName || "Race";
+  els.reviewTitle.textContent = eventName || state.settings.eventName || "比賽";
   els.demoBanner.hidden = !demo;
   if (demo) {
     state.settings.lateBy = 0;
     els.delay.value = "0";
     els.demoBanner.textContent =
-      "Practice finish. Bibs 12, 7, 21 and 3 meet the line at 10.000, 10.250, 10.500 and 10.750. The cyan edge is the torso. Flip is on so the numbers read correctly.";
+      "練習終點。號碼布 12、7、21、3 分別在 10.000、10.250、10.500、10.750 對上線。青色邊緣是軀幹。已開啟翻轉，讓號碼方向正確。";
     for (const runner of [
       { name: "12", time: 10 },
       { name: "7", time: 10.25 },
@@ -875,18 +879,18 @@ function renderReview() {
   const shown = official(state.hairlineTime);
   els.heroTime.textContent = formatRaceTime(shown);
   els.heroCaption.textContent = gap
-    ? `Gap in the recording · ${formatRaceTime(official(gap.tBefore), 1)} to ${formatRaceTime(official(gap.tAfter), 1)}`
-    : "Front of the torso on the line";
+    ? `錄影有空檔 · ${formatRaceTime(official(gap.tBefore), 1)} 至 ${formatRaceTime(official(gap.tAfter), 1)}`
+    : "軀幹前端對準線上";
   positionMarkLabels(left, vis);
   const fps = 1 / layout.dt;
   const dropped = droppedFrames(state.view.times, layout.dt);
-  els.accuracyNote.textContent = `About ${fps.toFixed(0)} fps, so each frame is ${formatRaceTime(layout.dt, 3)} s. ${dropped} dropped frame${dropped === 1 ? "" : "s"}. Times follow the centre line.`;
+  els.accuracyNote.textContent = `約 ${fps.toFixed(0)} fps，每幀 ${formatRaceTime(layout.dt, 3)} 秒。掉幀 ${dropped}。時間以中線為準。`;
   els.sliceValue.textContent = `${state.view.sliceWidth} px`;
   els.timeZoomValue.textContent = `${state.timeZoom.toFixed(2)}×`;
   els.magnifyValue.textContent = `${state.magnify.toFixed(1)}×`;
   els.slitValue.textContent = `${state.view.slitShift} px`;
-  els.delayValue.textContent = `${Number(state.settings.lateBy).toFixed(2)} s`;
-  els.nudgeCaption.textContent = state.selectedId ? "Moves the selected mark" : "Moves the centre line";
+  els.delayValue.textContent = `${Number(state.settings.lateBy).toFixed(2)} 秒`;
+  els.nudgeCaption.textContent = state.selectedId ? "移動選取的標記" : "移動中線";
 }
 
 function drawMarkLines() {
@@ -982,16 +986,16 @@ function renderResults() {
     const input = document.createElement("input");
     input.className = "bib";
     input.value = mark.name;
-  input.placeholder = "Bib / name";
+  input.placeholder = "號碼布／姓名";
   input.autocomplete = "off";
-  input.setAttribute("aria-label", `Name for place ${index + 1}`);
+  input.setAttribute("aria-label", `第 ${index + 1} 名的姓名`);
     const time = document.createElement("span");
     time.className = "result-time";
     time.textContent = formatRaceTime(official(mark.time));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "icon-btn";
-    remove.setAttribute("aria-label", `Remove place ${index + 1}`);
+    remove.setAttribute("aria-label", `移除第 ${index + 1} 名`);
     remove.textContent = "×";
     item.append(place, input, time, remove);
     els.results.append(item);
@@ -1039,14 +1043,14 @@ function addMark() {
   const existing = state.marks.find((mark) => Math.abs(mark.time - state.hairlineTime) < 0.012);
   if (existing) {
     state.selectedId = existing.id;
-    toast("That spot is already marked");
+    toast("這個位置已經標記過");
     renderResults();
     renderReview();
     return;
   }
   addMarkAt(state.hairlineTime);
   navigator.vibrate?.(12);
-  toast(`Marked ${formatRaceTime(official(state.hairlineTime))}`);
+  toast(`已標記 ${formatRaceTime(official(state.hairlineTime))}`);
   renderResults();
   renderReview();
 }
@@ -1123,12 +1127,12 @@ function csvEscape(value) {
 function buildCsv() {
   const layout = state.view.layout;
   const lines = [
-    `Event,${csvEscape(els.reviewTitle.textContent)}`,
-    `Start delay subtracted (s),${Number(state.settings.lateBy).toFixed(3)}`,
-    `Frame step (s),${layout.dt.toFixed(4)}`,
-    `Frames per second,${(1 / layout.dt).toFixed(2)}`,
+    `項目,${csvEscape(els.reviewTitle.textContent)}`,
+    `已扣除起跑延遲（秒）,${Number(state.settings.lateBy).toFixed(3)}`,
+    `幀間隔（秒）,${layout.dt.toFixed(4)}`,
+    `每秒幀數,${(1 / layout.dt).toFixed(2)}`,
     "",
-    "Place,Time,Name",
+    "名次,時間,姓名",
   ];
   ranked().forEach((mark, index) => {
     lines.push(`${index + 1},${official(mark.time).toFixed(3)},${csvEscape(mark.name.trim())}`);
@@ -1146,7 +1150,7 @@ function downloadBlob(blob, filename) {
 }
 
 function fileSlug() {
-  const name = (els.reviewTitle.textContent || "finish").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const name = (els.reviewTitle.textContent || "finish").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
   return `${name || "finish"}-${stamp}`;
 }
@@ -1185,21 +1189,21 @@ function renderExportCanvas() {
   canvas.width = width;
   canvas.height = height;
   if (canvas.width !== width || canvas.height !== height) {
-    throw new Error("This finish is too large to save as one image on this device.");
+    throw new Error("這張終點照片太大，此裝置無法存成單張圖片。");
   }
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#090b10";
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#ffb000";
-  ctx.font = "600 14px Barlow, sans-serif";
-  ctx.fillText("HKSC PHOTO FINISH", 20, 28);
+  ctx.font = `600 14px ${UI_FONT}`;
+  ctx.fillText("HKSC 終點攝影", 20, 28);
   ctx.fillStyle = "#f4f7fb";
-  ctx.font = '700 28px "Barlow Condensed", sans-serif';
-  ctx.fillText(els.reviewTitle.textContent || "Race", 20, 58);
+  ctx.font = `700 28px ${DISPLAY_FONT}`;
+  ctx.fillText(els.reviewTitle.textContent || "比賽", 20, 58);
   ctx.fillStyle = "#9aa3b2";
-  ctx.font = "14px Barlow, sans-serif";
+  ctx.font = `14px ${UI_FONT}`;
   ctx.textAlign = "right";
-  ctx.fillText(new Date().toLocaleString(), width - 20, 40);
+  ctx.fillText(new Date().toLocaleString("zh-Hant"), width - 20, 40);
   ctx.textAlign = "left";
 
   const photoY = header + rulerH;
@@ -1211,7 +1215,7 @@ function renderExportCanvas() {
 
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.fillStyle = "#d5dbe6";
-  ctx.font = "12px Barlow, sans-serif";
+  ctx.font = `12px ${UI_FONT}`;
   const pxPerSec = (width / Math.max(0.001, timeBounds()[1] - timeBounds()[0]));
   const step = pxPerSec > 180 ? 0.1 : pxPerSec > 70 ? 0.5 : 1;
   const [minRaw, maxRaw] = timeBounds();
@@ -1239,7 +1243,7 @@ function renderExportCanvas() {
     const previous = index > 0 ? exportX(list[index - 1].time, layout, width) : null;
     if (previous == null || Math.abs(x - previous) > 72) {
       const label = `${index + 1} ${formatRaceTime(official(mark.time), 2)}`;
-      ctx.font = "700 14px Barlow, sans-serif";
+      ctx.font = `700 14px ${UI_FONT}`;
       const box = ctx.measureText(label).width + 12;
       ctx.fillStyle = mark.color;
       ctx.fillRect(Math.min(x + 4, width - box - 8), photoY + 8, box, 20);
@@ -1250,8 +1254,8 @@ function renderExportCanvas() {
 
   let y = photoY + photoH + 28;
   ctx.fillStyle = "#f4f7fb";
-  ctx.font = "700 16px Barlow, sans-serif";
-  ctx.fillText("Results", 20, y);
+  ctx.font = `700 16px ${UI_FONT}`;
+  ctx.fillText("成績", 20, y);
   y += 12;
   list.forEach((mark, index) => {
     y += rowH;
@@ -1260,17 +1264,17 @@ function renderExportCanvas() {
     ctx.fillStyle = mark.color;
     ctx.fillRect(24, y - 16, 8, 20);
     ctx.fillStyle = "#f4f7fb";
-    ctx.font = "600 16px Barlow, sans-serif";
+    ctx.font = `600 16px ${UI_FONT}`;
     ctx.fillText(String(index + 1), 42, y);
     ctx.font = "700 16px JetBrains Mono, monospace";
     ctx.fillText(formatRaceTime(official(mark.time)), 78, y);
-    ctx.font = "16px Barlow, sans-serif";
+    ctx.font = `16px ${UI_FONT}`;
     ctx.fillText(mark.name.trim() || "—", 210, y);
   });
   ctx.fillStyle = "#9aa3b2";
-  ctx.font = "13px Barlow, sans-serif";
-  const direction = els.mirror.checked ? "Time runs from right to left." : "Time runs from left to right.";
-  ctx.fillText(`Time is read at the front of the torso. ${direction}`, 20, height - 16);
+  ctx.font = `13px ${UI_FONT}`;
+  const direction = els.mirror.checked ? "時間由右至左。" : "時間由左至右。";
+  ctx.fillText(`時間以軀幹前端為準。${direction}`, 20, height - 16);
   return canvas;
 }
 
@@ -1278,29 +1282,29 @@ async function photoBlob() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
   const canvas = renderExportCanvas();
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (!blob) throw new Error("The browser could not encode the image.");
+  if (!blob) throw new Error("瀏覽器無法編碼這張圖片。");
   return blob;
 }
 
 async function savePhoto() {
   try {
     els.savePhoto.disabled = true;
-    els.savePhoto.textContent = "Preparing…";
+    els.savePhoto.textContent = "準備中…";
     const blob = await photoBlob();
     downloadBlob(blob, `${fileSlug()}.png`);
-    toast("Photo saved");
+    toast("照片已儲存");
   } catch (error) {
-    toast(error.message || "Could not save the photo");
+    toast(error.message || "無法儲存照片");
   } finally {
     els.savePhoto.disabled = false;
-    els.savePhoto.textContent = "Save photo";
+    els.savePhoto.textContent = "儲存照片";
   }
 }
 
 function saveCsv() {
   const blob = new Blob([buildCsv()], { type: "text/csv;charset=utf-8" });
   downloadBlob(blob, `${fileSlug()}.csv`);
-  toast("Times saved");
+  toast("成績已儲存");
 }
 
 async function shareFinish() {
@@ -1314,9 +1318,9 @@ async function shareFinish() {
       return;
     }
     downloadBlob(blob, file.name);
-    toast("Sharing isn't available here, so the photo was saved instead.");
+    toast("這裡無法分享，已改為儲存照片。");
   } catch (error) {
-    if (error?.name !== "AbortError") toast(error.message || "Could not share the photo");
+    if (error?.name !== "AbortError") toast(error.message || "無法分享照片");
   } finally {
     els.shareBtn.disabled = false;
   }
@@ -1535,12 +1539,12 @@ function bindKeyboard() {
 function startPractice() {
   els.practice.disabled = true;
   const original = els.practice.textContent;
-  els.practice.textContent = "Building practice finish…";
+  els.practice.textContent = "正在建立練習終點…";
   try {
     const demo = createDemoRecording();
-    enterReview(demo.store, { demo: true, eventName: state.settings.eventName || "Practice" });
+    enterReview(demo.store, { demo: true, eventName: state.settings.eventName || "練習" });
   } catch (error) {
-    toast(error.message || "The practice finish could not be built");
+    toast(error.message || "無法建立練習終點");
   } finally {
     els.practice.disabled = false;
     els.practice.textContent = original;

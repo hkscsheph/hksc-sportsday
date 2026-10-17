@@ -1,7 +1,7 @@
 {
-  "name": "HKSC Photo Finish",
-  "short_name": "Photo Finish",
-  "description": "Time every runner from one finish-line photo.",
+  "name": "HKSC 終點攝影",
+  "short_name": "終點攝影",
+  "description": "用一張終點照片為每位選手計時。",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#090b10",

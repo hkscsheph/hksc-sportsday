@@ -1,19 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#090b10" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="description" content="Time every runner from one finish-line photo using the phone camera." />
-    <title>HKSC Photo Finish</title>
+    <meta name="description" content="用手機相機拍下一張終點照片，為每位選手計時。" />
+    <title>HKSC 終點攝影</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="css/styles.css" />
@@ -23,55 +23,53 @@
 
     <section id="screen-home" class="screen">
       <div class="home-inner">
-        <p class="eyebrow">HKSC Sports</p>
-        <h1>Photo Finish</h1>
+        <p class="eyebrow">HKSC 體育</p>
+        <h1>終點攝影</h1>
         <p class="lede">
-          Aim the camera across the finish line. The app keeps that line and turns the
-          recording into one picture where every runner has a time.
+          把相機對準終點線。應用程式會鎖定那條線，並把錄影合成一張照片，讓每位選手都有成績。
         </p>
 
         <div id="file-banner" class="banner" hidden>
-          Open this page from a local server. The camera and this app do not run from a
-          file:// address.
+          請從本機伺服器開啟此頁。相機與此應用程式無法在 file:// 網址下運作。
         </div>
 
         <label class="field">
-          <span>Event</span>
+          <span>項目</span>
           <input id="event-name" type="text" maxlength="60" autocomplete="off" />
         </label>
 
         <div class="field">
-          <span id="start-mode-label">Start the clock</span>
+          <span id="start-mode-label">開始計時</span>
           <div class="segment" role="radiogroup" aria-labelledby="start-mode-label">
-            <button type="button" class="seg" data-start="tap" aria-pressed="true">Tap</button>
-            <button type="button" class="seg" data-start="sound" aria-pressed="false">Sound</button>
+            <button type="button" class="seg" data-start="tap" aria-pressed="true">輕觸</button>
+            <button type="button" class="seg" data-start="sound" aria-pressed="false">聲音</button>
             <button type="button" class="seg" data-start="countdown" aria-pressed="false">3-2-1</button>
           </div>
         </div>
 
         <label class="check">
           <input id="hands-free" type="checkbox" />
-          <span>Record as soon as the clock starts</span>
+          <span>計時一開始就錄影</span>
         </label>
 
         <div class="field">
-          <span id="buffer-mode-label">Finish detail</span>
+          <span id="buffer-mode-label">終點細節</span>
           <div class="segment" role="radiogroup" aria-labelledby="buffer-mode-label">
-            <button type="button" class="seg" data-buffer="sharp" aria-pressed="true">Sharp</button>
-            <button type="button" class="seg" data-buffer="long" aria-pressed="false">Longer</button>
+            <button type="button" class="seg" data-buffer="sharp" aria-pressed="true">清晰</button>
+            <button type="button" class="seg" data-buffer="long" aria-pressed="false">較長</button>
           </div>
-          <p class="hint" id="buffer-hint">Sharp keeps a wider slit and a shorter recording.</p>
+          <p class="hint" id="buffer-hint">清晰模式使用較寬的縫，錄影時間較短。</p>
         </div>
 
         <ol class="steps">
-          <li><strong>Line it up.</strong> Stand to the side and lay the white line on the finish.</li>
-          <li><strong>Start at the gun.</strong> Then record while the runners come through.</li>
-          <li><strong>Mark the torso.</strong> Scroll the photo and read each time on the centre line.</li>
+          <li><strong>對準。</strong>站在側面，把白線對齊終點。</li>
+          <li><strong>鳴槍時開始。</strong>然後在選手通過時錄影。</li>
+          <li><strong>標記軀幹。</strong>捲動照片，在中線讀取每位選手的時間。</li>
         </ol>
 
-        <button type="button" class="btn primary" id="open-camera">Open camera</button>
-        <button type="button" class="btn ghost" id="practice">Try a practice finish</button>
-        <button type="button" class="text-btn" id="open-help">How the times work</button>
+        <button type="button" class="btn primary" id="open-camera">開啟相機</button>
+        <button type="button" class="btn ghost" id="practice">試試練習終點</button>
+        <button type="button" class="text-btn" id="open-help">時間如何計算</button>
       </div>
     </section>
 
@@ -79,8 +77,8 @@
       <canvas id="preview"></canvas>
       <div class="camera-top">
         <div class="camera-top-row">
-          <button type="button" class="text-btn light" id="close-camera">Close</button>
-          <p class="pill" id="camera-status">Starting camera…</p>
+          <button type="button" class="text-btn light" id="close-camera">關閉</button>
+          <p class="pill" id="camera-status">正在啟動相機…</p>
         </div>
         <p class="camera-event" id="camera-event"></p>
       </div>
@@ -89,8 +87,8 @@
       </div>
       <div class="camera-error" id="camera-error" hidden>
         <p id="camera-error-text"></p>
-        <button type="button" class="btn primary" id="camera-retry">Try again</button>
-        <button type="button" class="btn ghost" id="camera-practice">Practice finish</button>
+        <button type="button" class="btn primary" id="camera-retry">再試一次</button>
+        <button type="button" class="btn ghost" id="camera-practice">練習終點</button>
       </div>
       <div class="dock">
         <div class="clock-row">
@@ -107,21 +105,21 @@
           <div class="meter-fill" id="meter-fill"></div>
         </div>
         <label class="slider" id="sensitivity-wrap" hidden>
-          <span>Clap sensitivity <b id="sensitivity-value">0.28</b></span>
+          <span>拍手靈敏度 <b id="sensitivity-value">0.28</b></span>
           <input id="sensitivity" type="range" min="0.05" max="0.9" step="0.01" value="0.28" />
         </label>
         <label class="slider">
-          <span>Finish line <b id="line-value">50%</b></span>
+          <span>終點線 <b id="line-value">50%</b></span>
           <input id="line" type="range" min="4" max="96" step="0.5" value="50" />
         </label>
         <label class="slider">
-          <span>Zoom <b id="zoom-value">1.0×</b></span>
+          <span>縮放 <b id="zoom-value">1.0×</b></span>
           <input id="cam-zoom" type="range" min="1" max="4" step="0.05" value="1" />
         </label>
         <p class="hint" id="camera-hint"></p>
-        <button type="button" class="btn primary" id="primary">Start clock</button>
-        <button type="button" class="btn ghost" id="secondary" hidden>Pause</button>
-        <button type="button" class="text-btn light" id="discard" hidden>Discard race</button>
+        <button type="button" class="btn primary" id="primary">開始計時</button>
+        <button type="button" class="btn ghost" id="secondary" hidden>暫停</button>
+        <button type="button" class="text-btn light" id="discard" hidden>捨棄這場比賽</button>
       </div>
       <video id="video" playsinline muted autoplay></video>
     </section>
@@ -129,15 +127,15 @@
     <section id="screen-review" class="screen review" hidden>
       <header class="review-bar">
         <div>
-          <p class="eyebrow">Finish photo</p>
-          <h2 id="review-title">Race</h2>
+          <p class="eyebrow">終點照片</p>
+          <h2 id="review-title">比賽</h2>
         </div>
-        <button type="button" class="btn ghost slim" id="new-race">New race</button>
+        <button type="button" class="btn ghost slim" id="new-race">新比賽</button>
       </header>
       <p class="banner" id="demo-banner" hidden></p>
       <div class="hero-block">
         <p class="hero-time" id="hero-time">0.000</p>
-        <p class="hero-caption" id="hero-caption">Front of the torso on the line</p>
+        <p class="hero-caption" id="hero-caption">軀幹前端對準線上</p>
       </div>
       <div class="stage" id="stage">
         <canvas id="ruler"></canvas>
@@ -148,39 +146,39 @@
         <div class="hairline" aria-hidden="true"></div>
       </div>
       <div class="tools">
-        <div class="nudge" aria-label="Move by a hundredth or a tenth">
+        <div class="nudge" aria-label="以百分之一秒或十分之一秒移動">
           <button type="button" class="btn ghost slim" id="nudge-back-tenth" data-delta="-0.1">−0.10</button>
           <button type="button" class="btn ghost slim" id="nudge-back" data-delta="-0.01">−0.01</button>
-          <button type="button" class="btn primary mark-btn" id="mark-btn">Mark</button>
+          <button type="button" class="btn primary mark-btn" id="mark-btn">標記</button>
           <button type="button" class="btn ghost slim" id="nudge-forward" data-delta="0.01">+0.01</button>
           <button type="button" class="btn ghost slim" id="nudge-forward-tenth" data-delta="0.1">+0.10</button>
         </div>
-        <p class="hint center" id="nudge-caption">Moves the centre line</p>
+        <p class="hint center" id="nudge-caption">移動中線</p>
         <label class="slider">
-          <span>Slice width <b id="slice-value">7 px</b></span>
+          <span>切片寬度 <b id="slice-value">7 px</b></span>
           <input id="slice" type="range" min="1" max="21" step="1" value="7" />
         </label>
-        <p class="hint">Narrower if bodies look stretched or doubled. Wider if they look thin or broken.</p>
+        <p class="hint">身體看起來被拉長或重疊時請調窄。看起來太瘦或斷開時請調寬。</p>
         <details class="adjust" id="adjust">
-          <summary>Zoom, flip, and start delay</summary>
+          <summary>縮放、翻轉與起跑延遲</summary>
           <label class="slider">
-            <span>Time zoom <b id="time-zoom-value">1.0×</b></span>
+            <span>時間縮放 <b id="time-zoom-value">1.0×</b></span>
             <input id="time-zoom" type="range" min="0.15" max="6" step="0.01" value="1" />
           </label>
           <label class="slider">
-            <span>Photo height <b id="magnify-value">1.0×</b></span>
+            <span>照片高度 <b id="magnify-value">1.0×</b></span>
             <input id="magnify" type="range" min="0.7" max="2.4" step="0.05" value="1" />
           </label>
           <label class="slider">
-            <span>Slit nudge <b id="slit-value">0 px</b></span>
+            <span>縫線微調 <b id="slit-value">0 px</b></span>
             <input id="slit" type="range" min="-8" max="8" step="1" value="0" />
           </label>
           <label class="check">
             <input id="mirror" type="checkbox" />
-            <span>Flip image so bibs read the right way</span>
+            <span>翻轉影像，讓號碼布方向正確</span>
           </label>
           <label class="slider">
-            <span>Subtract start delay <b id="delay-value">0.00 s</b></span>
+            <span>扣除起跑延遲 <b id="delay-value">0.00 秒</b></span>
             <input id="delay" type="range" min="0" max="1" step="0.01" value="0" />
           </label>
           <div class="preset-row">
@@ -189,45 +187,40 @@
             <button type="button" class="btn ghost slim" data-delay="0.2">0.20</button>
           </div>
           <p class="hint" id="accuracy-note"></p>
-          <p class="hint">Keys: arrows 0.01 s, shift+arrows 0.10 s, M marks, Delete removes the selected mark.</p>
+          <p class="hint">按鍵：方向鍵 0.01 秒，Shift＋方向鍵 0.10 秒，M 標記，Delete 刪除選取的標記。</p>
         </details>
         <div class="export-row">
-          <button type="button" class="btn primary" id="save-photo">Save photo</button>
-          <button type="button" class="btn ghost" id="save-csv">Save times</button>
-          <button type="button" class="btn ghost" id="share-btn">Share</button>
+          <button type="button" class="btn primary" id="save-photo">儲存照片</button>
+          <button type="button" class="btn ghost" id="save-csv">儲存成績</button>
+          <button type="button" class="btn ghost" id="share-btn">分享</button>
         </div>
       </div>
       <div class="results-wrap">
         <div class="results-head">
-          <h3>Results <span id="result-count">0</span></h3>
-          <button type="button" class="text-btn" id="clear-marks">Clear</button>
+          <h3>成績 <span id="result-count">0</span></h3>
+          <button type="button" class="text-btn" id="clear-marks">清除</button>
         </div>
-        <p class="hint" id="results-empty">Scroll until the front of a torso meets the line, then Mark.</p>
+        <p class="hint" id="results-empty">捲動到軀幹前端對上線，然後按標記。</p>
         <ol class="results" id="results"></ol>
       </div>
     </section>
 
     <dialog id="help">
       <div class="dialog-card">
-        <p class="eyebrow">How timing works</p>
-        <h2>The whole picture is the finish line</h2>
+        <p class="eyebrow">計時原理</p>
+        <h2>整張照片就是終點線</h2>
         <p>
-          This is the same idea as a fully automatic photo finish. The camera does not
-          freeze one moment. It keeps a thin vertical strip on the finish and places each
-          moment beside the next. Moving left and right moves through time.
+          原理與全自動終點攝影相同。相機不是凍結某一瞬間，而是持續擷取終點上的一條細直縫，再把每個瞬間並排。左右移動就是在時間軸上移動。
         </p>
         <ol class="steps">
-          <li>Put the phone a few metres to the side, held still, with the white line exactly on the finish. Portrait keeps more of each runner.</li>
-          <li>Start the clock when the race starts. Hit record as they arrive, or turn on recording with the clock if the phone is on a stand.</li>
-          <li>On the photo, put the centre line on the front of the torso — not the head, hands, or feet — and mark that time.</li>
+          <li>把手機放在終點側面數公尺處並拿穩，白線要正好對準終點。直向拍攝能保留更多選手身影。</li>
+          <li>比賽開始時啟動計時。選手接近時再按錄影；若手機架在支架上，可讓計時一開始就錄影。</li>
+          <li>在照片上把中線對準軀幹前端——不是頭、手或腳——再標記該時間。</li>
         </ol>
         <p>
-          Slice width is how much of the picture is taken from each frame. Match it to the
-          runners so bodies look whole. The clock text is the time at the centre line.
-          A phone camera is usually 30 or 60 frames a second, so that is the real step
-          between pictures.
+          切片寬度是每一幀取下的畫面寬度。請調到選手身體看起來完整。畫面上的時間是中線所在的時刻。手機相機通常是每秒 30 或 60 幀，那就是畫面之間的實際間隔。
         </p>
-        <button type="button" class="btn primary" id="help-close">Continue</button>
+        <button type="button" class="btn primary" id="help-close">繼續</button>
       </div>
     </dialog>
 
