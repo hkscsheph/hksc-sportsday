@@ -293,8 +293,8 @@ input[type="range"]::-moz-range-thumb {
 .camera-feed {
   position: relative;
   flex: 1 1 auto;
-  min-height: 38vh;
-  min-height: 38dvh;
+  min-height: 18vh;
+  min-height: 18dvh;
   overflow: hidden;
   background: #000;
 }
@@ -361,7 +361,12 @@ input[type="range"]::-moz-range-thumb {
 .dock {
   position: relative;
   z-index: 3;
-  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  max-height: 72dvh;
+  min-height: 0;
+  padding: 0;
 }
 
 .camera-top-row, .clock-row, .results-head, .export-row, .preset-row, .review-bar {
@@ -393,10 +398,26 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .dock {
-  padding: 14px 14px calc(12px + var(--safe-bottom));
   background: var(--bg);
   border-top: 1px solid var(--line);
 }
+
+.dock-scroll {
+  overflow: auto;
+  min-height: 0;
+  padding: 10px 14px 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.dock-actions {
+  flex-shrink: 0;
+  padding: 8px 14px calc(10px + var(--safe-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+}
+
+.dock-actions .btn { margin-top: 6px; }
+.dock-actions .btn:first-child { margin-top: 0; }
 
 .clock {
   margin: 0;
