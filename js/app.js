@@ -1,0 +1,1692 @@
+import { createDemoRecording } from "./demo.js";
+import { FrameStore, PhotoView } from "./store.js";
+import {
+  clamp,
+  droppedFrames,
+  formatRaceTime,
+  gapAt,
+  photoToScreenX,
+  screenToPhotoX,
+  timeAtX,
+  xAtTime,
+} from "./timing.js";
+
+const SETTINGS_KEY = "hksc-photo-finish";
+const COLORS = ["#ffb000", "#3ee0a2", "#4cc9f0", "#ff6b6b", "#c77dff", "#f4f1de", "#ff8c42", "#80ed99"];
+
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  toast: $("toast"),
+  home: $("screen-home"),
+  camera: $("screen-camera"),
+  review: $("screen-review"),
+  fileBanner: $("file-banner"),
+  eventName: $("event-name"),
+  handsFree: $("hands-free"),
+  bufferHint: $("buffer-hint"),
+  openCamera: $("open-camera"),
+  practice: $("practice"),
+  openHelp: $("open-help"),
+  help: $("help"),
+  helpClose: $("help-close"),
+  preview: $("preview"),
+  video: $("video"),
+  closeCamera: $("close-camera"),
+  cameraStatus: $("camera-status"),
+  cameraEvent: $("camera-event"),
+  countdown: $("countdown"),
+  countdownNum: $("countdown-num"),
+  cameraError: $("camera-error"),
+  cameraErrorText: $("camera-error-text"),
+  cameraRetry: $("camera-retry"),
+  cameraPractice: $("camera-practice"),
+  clock: $("clock"),
+  clockSr: $("clock-sr"),
+  holdLabel: $("hold-label"),
+  buffer: $("buffer"),
+  bufferFill: $("buffer-fill"),
+  bufferLabel: $("buffer-label"),
+  liveStrip: $("live-strip"),
+  meterWrap: $("meter-wrap"),
+  meterFill: $("meter-fill"),
+  sensitivityWrap: $("sensitivity-wrap"),
+  sensitivity: $("sensitivity"),
+  sensitivityValue: $("sensitivity-value"),
+  line: $("line"),
+  lineValue: $("line-value"),
+  camZoom: $("cam-zoom"),
+  zoomValue: $("zoom-value"),
+  cameraHint: $("camera-hint"),
+  primary: $("primary"),
+  secondary: $("secondary"),
+  discard: $("discard"),
+  reviewTitle: $("review-title"),
+  demoBanner: $("demo-banner"),
+  heroTime: $("hero-time"),
+  heroCaption: $("hero-caption"),
+  stage: $("stage"),
+  ruler: $("ruler"),
+  photoWrap: $("photo-wrap"),
+  photo: $("photo"),
+  marksLayer: $("marks-layer"),
+  nudgeCaption: $("nudge-caption"),
+  markBtn: $("mark-btn"),
+  slice: $("slice"),
+  sliceValue: $("slice-value"),
+  timeZoom: $("time-zoom"),
+  timeZoomValue: $("time-zoom-value"),
+  magnify: $("magnify"),
+  magnifyValue: $("magnify-value"),
+  slit: $("slit"),
+  slitValue: $("slit-value"),
+  mirror: $("mirror"),
+  delay: $("delay"),
+  delayValue: $("delay-value"),
+  accuracyNote: $("accuracy-note"),
+  savePhoto: $("save-photo"),
+  saveCsv: $("save-csv"),
+  shareBtn: $("share-btn"),
+  resultCount: $("result-count"),
+  resultsEmpty: $("results-empty"),
+  results: $("results"),
+  clearMarks: $("clear-marks"),
+  newRace: $("new-race"),
+};
+
+const state = {
+  screen: "home",
+  settings: loadSettings(),
+  stream: null,
+  facing: "environment",
+  slitNorm: 0.5,
+  panYNorm: 0.5,
+  camZoom: 1,
+  fps: 0,
+  frameGen: 0,
+  clockStart: null,
+  capturing: false,
+  listening: false,
+  listenSince: 0,
+  prevPeak: 0,
+  store: null,
+  lock: null,
+  countdownTimer: 0,
+  countdownDeadline: 0,
+  audioCtx: null,
+  analyser: null,
+  audioStream: null,
+  wakeLock: null,
+  view: null,
+  hairlineTime: 0,
+  timeZoom: 1,
+  magnify: 1,
+  marks: [],
+  selectedId: null,
+  markSeq: 0,
+  demo: false,
+  inertia: 0,
+  drawQueued: false,
+  lastSrSecond: -1,
+  liveStamp: 0,
+};
+
+let previewCtx;
+let photoCtx;
+let rulerCtx;
+let resizeObserver;
+
+function loadSettings() {
+  const defaults = {
+    eventName: "Race 1",
+    startMode: "tap",
+    handsFree: true,
+    bufferMode: "sharp",
+    sliceWidth: 7,
+    mirror: false,
+    lateBy: 0,
+    seenHelp: false,
+  };
+  try {
+    return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+}
+
+function toast(message) {
+  els.toast.textContent = message;
+  els.toast.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => els.toast.classList.remove("show"), 2400);
+}
+
+function show(screen) {
+  state.screen = screen;
+  els.home.hidden = screen !== "home";
+  els.camera.hidden = screen !== "camera";
+  els.review.hidden = screen !== "review";
+  if (screen === "review") requestAnimationFrame(renderReview);
+}
+
+function uid() {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function bandForMode() {
+  return state.settings.bufferMode === "long" ? 9 : 21;
+}
+
+function applyHomeSettings() {
+  els.eventName.value = state.settings.eventName;
+  els.handsFree.checked = state.settings.handsFree;
+  document.querySelectorAll("[data-start]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.start === state.settings.startMode));
+  });
+  document.querySelectorAll("[data-buffer]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.buffer === state.settings.bufferMode));
+  });
+  els.bufferHint.textContent =
+    state.settings.bufferMode === "long"
+      ? "Longer keeps a thinner slit so the finish can run for more time."
+      : "Sharp keeps a wider slit and a shorter recording.";
+  els.fileBanner.hidden = location.protocol !== "file:";
+}
+
+function openHelp() {
+  els.help.showModal();
+  return new Promise((resolve) => {
+    const close = () => {
+      els.help.close();
+      els.helpClose.removeEventListener("click", close);
+      els.help.removeEventListener("close", close);
+      resolve();
+    };
+    els.helpClose.addEventListener("click", close);
+    els.help.addEventListener("close", close);
+  });
+}
+
+function framing() {
+  const video = els.video;
+  const vw = video.videoWidth || 1;
+  const vh = video.videoHeight || 1;
+  const cropW = vw / state.camZoom;
+  const cropH = vh / state.camZoom;
+  const slitX = clamp(state.slitNorm, 0.02, 0.98) * vw;
+  let x = slitX - cropW / 2;
+  x = clamp(x, 0, Math.max(0, vw - cropW));
+  let y = state.panYNorm * vh - cropH / 2;
+  y = clamp(y, 0, Math.max(0, vh - cropH));
+  return { x, y, w: cropW, h: cropH, slitX, vw, vh };
+}
+
+function activeFraming() {
+  return state.lock || framing();
+}
+
+async function openCamera() {
+  if (location.protocol === "file:") {
+    toast("Use a local server so the browser can open the camera.");
+    return;
+  }
+  if (!state.settings.seenHelp) {
+    state.settings.seenHelp = true;
+    saveSettings();
+    await openHelp();
+  }
+  show("camera");
+  els.cameraError.hidden = true;
+  els.cameraEvent.textContent = state.settings.eventName || "Race";
+  await startStream();
+}
+
+async function startStream() {
+  releaseStream();
+  els.cameraStatus.textContent = "Starting camera…";
+  const videoConstraints = {
+    facingMode: { ideal: state.facing },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+    frameRate: { ideal: 60 },
+  };
+  try {
+    state.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+  } catch (error) {
+    if (state.facing === "environment") {
+      state.facing = "user";
+      try {
+        state.stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+      } catch (inner) {
+        showCameraError(inner);
+        return;
+      }
+    } else {
+      showCameraError(error);
+      return;
+    }
+  }
+  if (state.screen !== "camera") {
+    state.stream.getTracks().forEach((track) => track.stop());
+    state.stream = null;
+    return;
+  }
+  els.video.srcObject = state.stream;
+  await els.video.play();
+  if (state.screen !== "camera") {
+    releaseStream();
+    return;
+  }
+  state.slitNorm = 0.5;
+  state.panYNorm = 0.5;
+  els.line.value = "50";
+  state.frameGen += 1;
+  const gen = state.frameGen;
+  startCameraLoop();
+  if (els.video.requestVideoFrameCallback) {
+    const onFrame = (now) => {
+      if (gen !== state.frameGen) return;
+      noteFps(now);
+      captureFrame(now);
+      els.video.requestVideoFrameCallback(onFrame);
+    };
+    els.video.requestVideoFrameCallback(onFrame);
+  }
+  syncCameraControls();
+}
+
+let cameraLoopGen = 0;
+
+function startCameraLoop() {
+  const gen = ++cameraLoopGen;
+  const loop = (now) => {
+    if (gen !== cameraLoopGen || state.screen !== "camera") return;
+    if (!els.video.requestVideoFrameCallback && els.video.videoWidth) {
+      noteFps(now);
+      captureFrame(now);
+    }
+    drawPreview();
+    updateClock(now);
+    updateAudio();
+    updateBufferUi();
+    if (now - state.liveStamp > 180) {
+      state.liveStamp = now;
+      try {
+        drawLiveStrip();
+      } catch {
+        /* A bad frame should not stop the clock. */
+      }
+    }
+    updateCountdown(now);
+    requestAnimationFrame(loop);
+  };
+  requestAnimationFrame(loop);
+}
+
+function showCameraError(error) {
+  const name = error?.name || "";
+  let message = "The camera could not be started. You can still try a practice finish.";
+  if (location.protocol === "file:") {
+    message = "Open this app from a local server. Browsers block the camera on a file:// page.";
+  } else if (name === "NotAllowedError") {
+    message = "Camera permission was blocked. Allow the camera in the browser settings and try again.";
+  } else if (name === "NotFoundError") {
+    message = "No camera was found on this device.";
+  } else if (name === "NotReadableError") {
+    message = "The camera is in use by another app.";
+  }
+  els.cameraError.hidden = false;
+  els.cameraErrorText.textContent = message;
+  els.cameraStatus.textContent = "Camera unavailable";
+}
+
+function releaseStream() {
+  state.frameGen += 1;
+  state.stream?.getTracks().forEach((track) => track.stop());
+  state.stream = null;
+  els.video.srcObject = null;
+}
+
+function noteFps(now) {
+  if (noteFps.last) {
+    const dt = now - noteFps.last;
+    if (dt > 5 && dt < 200) {
+      const instant = 1000 / dt;
+      state.fps = state.fps ? state.fps * 0.9 + instant * 0.1 : instant;
+    }
+  }
+  noteFps.last = now;
+}
+
+function resizePreview() {
+  const rect = els.preview.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const width = Math.max(2, Math.round(rect.width * dpr));
+  const height = Math.max(2, Math.round(rect.height * dpr));
+  if (els.preview.width !== width || els.preview.height !== height) {
+    els.preview.width = width;
+    els.preview.height = height;
+  }
+}
+
+function drawPreview() {
+  const video = els.video;
+  if (!video.videoWidth) return;
+  resizePreview();
+  const ctx = previewCtx;
+  const fr = activeFraming();
+  const canvas = els.preview;
+  ctx.drawImage(video, fr.x, fr.y, fr.w, fr.h, 0, 0, canvas.width, canvas.height);
+  const slitPx = ((fr.slitX - fr.x) / fr.w) * canvas.width;
+  const slicePx = (Math.min(state.settings.sliceWidth, bandForMode()) / fr.w) * canvas.width;
+  const shadeLeft = slitPx - slicePx / 2;
+  const shadeRight = slitPx + slicePx / 2;
+  ctx.fillStyle = "rgba(0,0,0,0.28)";
+  ctx.fillRect(0, 0, Math.max(0, shadeLeft), canvas.height);
+  ctx.fillRect(shadeRight, 0, Math.max(0, canvas.width - shadeRight), canvas.height);
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(slitPx, 0);
+  ctx.lineTo(slitPx, canvas.height);
+  ctx.stroke();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = "#ffb000";
+  ctx.beginPath();
+  ctx.moveTo(slitPx, 18);
+  ctx.lineTo(slitPx + 7, 28);
+  ctx.lineTo(slitPx, 38);
+  ctx.lineTo(slitPx - 7, 28);
+  ctx.fill();
+  ctx.fillStyle = "#fff";
+  ctx.font = "600 13px Barlow, sans-serif";
+  ctx.fillText("FINISH", slitPx + 12, 34);
+}
+
+function updateClock(now) {
+  if (state.clockStart == null) {
+    els.clock.textContent = "0.00";
+    return;
+  }
+  const elapsed = Math.max(0, (now - state.clockStart) / 1000);
+  els.clock.textContent = formatRaceTime(elapsed, 2);
+  const second = Math.floor(elapsed);
+  if (second !== state.lastSrSecond) {
+    state.lastSrSecond = second;
+    els.clockSr.textContent = formatRaceTime(elapsed, 1);
+  }
+}
+
+function captureFrame(now) {
+  if (!state.capturing || !state.store || !state.lock || state.clockStart == null) return;
+  const time = (now - state.clockStart) / 1000;
+  if (time < 0) return;
+  const fr = state.lock;
+  const store = state.store;
+  const srcX = Math.round(fr.slitX - (store.band - 1) / 2);
+  const safeX = clamp(srcX, 0, Math.max(0, fr.vw - store.band));
+  const scratch = captureScratch(store.band, store.height);
+  scratch.ctx.drawImage(els.video, safeX, fr.y, store.band, fr.h, 0, 0, store.band, store.height);
+  const rolling = store.push(scratch.ctx.getImageData(0, 0, store.band, store.height).data, time);
+  if (rolling && store.dropped === 1) {
+    toast("Memory is full. Keeping the latest part of the finish — stop after the last runner.");
+  }
+}
+
+function captureScratch(band, height) {
+  if (!captureScratch.canvas || captureScratch.band !== band || captureScratch.height !== height) {
+    const canvas = document.createElement("canvas");
+    canvas.width = band;
+    canvas.height = height;
+    captureScratch.canvas = canvas;
+    captureScratch.ctx = canvas.getContext("2d", { willReadFrequently: true, alpha: false });
+    captureScratch.band = band;
+    captureScratch.height = height;
+  }
+  return captureScratch;
+}
+
+function estimateHoldSeconds() {
+  if (!els.video.videoWidth || state.fps < 1) return null;
+  const fr = framing();
+  const band = bandForMode();
+  const capH = state.settings.bufferMode === "long" ? 720 : 1080;
+  const height = Math.max(2, Math.min(capH, Math.round(fr.h)));
+  const frames = Math.max(90, Math.min(4000, Math.floor((72 * 1024 * 1024) / (band * height * 4))));
+  return frames / state.fps;
+}
+
+function updateBufferUi() {
+  const hold = estimateHoldSeconds();
+  const settings = state.stream?.getVideoTracks?.()[0]?.getSettings?.() || {};
+  const fpsText = state.fps ? `${Math.round(state.fps)} fps` : "measuring fps";
+  const sizeText = settings.width ? `${settings.width}×${settings.height}` : "";
+  els.cameraStatus.textContent = [sizeText, fpsText].filter(Boolean).join(" · ") || "Camera ready";
+  if (state.clockStart == null) {
+    els.holdLabel.textContent = hold ? `Holds about ${Math.round(hold)}s` : "";
+  }
+  const store = state.store;
+  const showBuffer = Boolean(store && (state.capturing || store.count));
+  els.buffer.hidden = !showBuffer;
+  els.liveStrip.hidden = !showBuffer;
+  if (!store || !showBuffer) return;
+  const ratio = store.count / store.max;
+  els.bufferFill.style.width = `${Math.min(100, ratio * 100)}%`;
+  els.buffer.classList.toggle("rolling", store.dropped > 0);
+  const from = formatRaceTime(store.oldestTime(), 1);
+  const to = formatRaceTime(store.newestTime(), 1);
+  els.bufferLabel.textContent = store.dropped
+    ? `Latest only · ${from}–${to}`
+    : `${from}–${to}`;
+  els.holdLabel.textContent = store.dropped ? "Buffer rolling" : `${store.count} frames`;
+}
+
+function drawLiveStrip() {
+  const store = state.store;
+  if (!store?.count) return;
+  const canvas = els.liveStrip;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const width = Math.max(2, Math.round(canvas.clientWidth * dpr));
+  const height = Math.max(2, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  const frames = Math.min(store.count, Math.max(8, Math.floor(width / 4)));
+  const dw = width / frames;
+  const scratch = captureScratch(store.band, store.height);
+  ctx.fillStyle = "#10141b";
+  ctx.fillRect(0, 0, width, height);
+  for (let i = 0; i < frames; i++) {
+    const index = store.count - frames + i;
+    const off = store.frameOffset(index);
+    scratch.ctx.putImageData(new ImageData(store.bytes.slice(off, off + store.frameBytes), store.band, store.height), 0, 0);
+    const srcX = Math.floor((store.band - 1) / 2);
+    ctx.drawImage(scratch.canvas, srcX, 0, 1, store.height, i * dw, 0, dw + 0.5, height);
+  }
+}
+
+function syncCameraControls() {
+  const countdown = Boolean(state.countdownTimer);
+  const clockOn = state.clockStart != null && !countdown;
+  els.discard.hidden = !clockOn && !state.listening;
+  els.sensitivityWrap.hidden = !state.listening;
+  els.meterWrap.hidden = !state.listening;
+  els.camera.classList.toggle("recording", state.capturing);
+  const locked = Boolean(state.lock);
+  els.line.disabled = locked;
+  els.camZoom.disabled = locked;
+  if (countdown) {
+    els.primary.textContent = "Cancel countdown";
+    els.secondary.hidden = true;
+    els.cameraHint.textContent = "The clock starts on the tone.";
+    return;
+  }
+  if (state.listening && state.clockStart == null) {
+    els.primary.textContent = "Cancel listening";
+    els.secondary.hidden = true;
+    els.cameraHint.textContent = "Clap or fire the start when the meter jumps.";
+    return;
+  }
+  if (!clockOn) {
+    const labels = { tap: "Start clock", sound: "Arm start", countdown: "Start countdown" };
+    els.primary.textContent = labels[state.settings.startMode];
+    els.secondary.hidden = true;
+    els.cameraHint.textContent = state.settings.handsFree
+      ? "Recording starts with the clock. Prop the phone so the white line stays on the finish."
+      : "Start the clock at the gun, then tap Record when the runners reach the line.";
+    return;
+  }
+  if (!state.store && !state.capturing) {
+    els.primary.textContent = "Record finish";
+    els.secondary.hidden = true;
+    els.cameraHint.textContent = "The clock is running. Record across the moment they finish.";
+    return;
+  }
+  els.primary.textContent = "Stop & build photo";
+  els.secondary.hidden = false;
+  els.secondary.textContent = state.capturing ? "Pause" : "Resume";
+  els.cameraHint.textContent = state.capturing
+    ? "Hold still. Stop just after the last runner."
+    : "Recording is paused. The clock is still running.";
+}
+
+function beginStart() {
+  if (state.settings.startMode === "sound") armSound();
+  else if (state.settings.startMode === "countdown") startCountdown();
+  else startClock(performance.now());
+}
+
+function startClock(perfTime) {
+  state.clockStart = perfTime;
+  state.listening = false;
+  stopAudioInput();
+  if (state.settings.handsFree) startCapture();
+  stayAwake();
+  syncCameraControls();
+}
+
+function startCapture() {
+  if (!els.video.videoWidth) {
+    toast("Wait for the camera picture.");
+    return;
+  }
+  if (!state.store) {
+    state.lock = framing();
+    const band = bandForMode();
+    const capH = state.settings.bufferMode === "long" ? 720 : 1080;
+    const height = Math.max(2, Math.min(capH, Math.round(state.lock.h)));
+    let frames = Math.floor((72 * 1024 * 1024) / (band * height * 4));
+    frames = clamp(frames, 90, 4000);
+    try {
+      state.store = new FrameStore(band, height, frames);
+    } catch {
+      state.store = new FrameStore(band, Math.min(height, 480), 300);
+    }
+  }
+  state.capturing = true;
+  syncCameraControls();
+}
+
+function togglePause() {
+  if (!state.store) return;
+  state.capturing = !state.capturing;
+  syncCameraControls();
+}
+
+async function stayAwake() {
+  try {
+    state.wakeLock = await navigator.wakeLock?.request("screen");
+  } catch {
+    state.wakeLock = null;
+  }
+}
+
+function releaseWakeLock() {
+  state.wakeLock?.release?.();
+  state.wakeLock = null;
+}
+
+async function armSound() {
+  try {
+    state.audioCtx = state.audioCtx || new AudioContext();
+    await state.audioCtx.resume();
+    state.audioStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: false,
+    });
+    const source = state.audioCtx.createMediaStreamSource(state.audioStream);
+    state.analyser = state.audioCtx.createAnalyser();
+    state.analyser.fftSize = 1024;
+    source.connect(state.analyser);
+    state.listening = true;
+    state.listenSince = performance.now();
+    state.prevPeak = 0;
+    syncCameraControls();
+  } catch {
+    toast("Microphone permission is needed to start on a sound.");
+  }
+}
+
+function updateAudio() {
+  if (!state.listening || !state.analyser || state.clockStart != null) return;
+  const buffer = updateAudio.buffer || (updateAudio.buffer = new Float32Array(state.analyser.fftSize));
+  state.analyser.getFloatTimeDomainData(buffer);
+  let peak = 0;
+  for (const sample of buffer) peak = Math.max(peak, Math.abs(sample));
+  els.meterFill.style.width = `${Math.min(100, peak * 140)}%`;
+  const threshold = Number(els.sensitivity.value);
+  if (performance.now() - state.listenSince < 400) {
+    state.prevPeak = peak;
+    return;
+  }
+  if (peak >= threshold && state.prevPeak < threshold * 0.65) {
+    const latency = (state.analyser.fftSize / state.audioCtx.sampleRate) * 1000;
+    startClock(performance.now() - latency);
+    toast("Start detected");
+  }
+  state.prevPeak = peak;
+}
+
+async function startCountdown() {
+  state.audioCtx = state.audioCtx || new AudioContext();
+  await state.audioCtx.resume();
+  const startAt = state.audioCtx.currentTime + 3;
+  const perfAtGo = performance.now() + (startAt - state.audioCtx.currentTime) * 1000;
+  beep(660, 0.12, startAt - 3);
+  beep(660, 0.12, startAt - 2);
+  beep(660, 0.12, startAt - 1);
+  beep(990, 0.28, startAt);
+  state.countdownDeadline = perfAtGo;
+  els.countdown.hidden = false;
+  state.countdownTimer = window.setTimeout(() => {
+    state.countdownTimer = 0;
+    els.countdown.hidden = true;
+    startClock(perfAtGo);
+  }, Math.max(0, perfAtGo - performance.now()));
+  syncCameraControls();
+}
+
+function beep(frequency, duration, when) {
+  const ctx = state.audioCtx;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.frequency.value = frequency;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const t = when ?? ctx.currentTime;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+  osc.start(t);
+  osc.stop(t + duration + 0.02);
+}
+
+function updateCountdown(now) {
+  if (!state.countdownTimer && els.countdown.hidden) return;
+  const left = (state.countdownDeadline - now) / 1000;
+  els.countdownNum.textContent = left > 2 ? "3" : left > 1 ? "2" : left > 0 ? "1" : "GO";
+}
+
+function cancelCountdown() {
+  clearTimeout(state.countdownTimer);
+  state.countdownTimer = 0;
+  els.countdown.hidden = true;
+  syncCameraControls();
+}
+
+function stopAudioInput() {
+  state.audioStream?.getTracks().forEach((track) => track.stop());
+  state.audioStream = null;
+  state.analyser = null;
+}
+
+function discardRace() {
+  if (state.clockStart != null && !confirm("Discard this race?")) return;
+  clearTimeout(state.countdownTimer);
+  state.countdownTimer = 0;
+  els.countdown.hidden = true;
+  state.clockStart = null;
+  state.capturing = false;
+  state.listening = false;
+  state.store = null;
+  state.lock = null;
+  stopAudioInput();
+  releaseWakeLock();
+  syncCameraControls();
+}
+
+function leaveCamera() {
+  if ((state.clockStart != null || state.store?.count) && !confirm("Leave this race? The recording will be discarded.")) {
+    return;
+  }
+  shutdownCamera();
+  show("home");
+}
+
+function shutdownCamera() {
+  cameraLoopGen += 1;
+  clearTimeout(state.countdownTimer);
+  state.countdownTimer = 0;
+  state.clockStart = null;
+  state.capturing = false;
+  state.listening = false;
+  state.store = null;
+  state.lock = null;
+  stopAudioInput();
+  releaseWakeLock();
+  releaseStream();
+}
+
+function stopAndBuild() {
+  if (!state.store || state.store.count < 2) {
+    toast("Record a little longer before building the photo.");
+    return;
+  }
+  state.capturing = false;
+  const store = state.store;
+  const eventName = state.settings.eventName;
+  shutdownCamera();
+  state.store = store;
+  enterReview(store, { demo: false, eventName });
+}
+
+function enterReview(store, { demo, eventName }) {
+  state.view = new PhotoView(store);
+  state.demo = demo;
+  state.marks = [];
+  state.selectedId = null;
+  state.markSeq = 0;
+  state.inertia = 0;
+  const slice = clamp(state.settings.sliceWidth, 1, store.band);
+  state.view.setOptions({ sliceWidth: slice, slitShift: 0 });
+  els.slice.max = String(store.band);
+  els.slice.value = String(slice);
+  els.slit.value = "0";
+  syncSlitRange();
+  els.mirror.checked = demo ? true : state.settings.mirror;
+  els.delay.value = String(state.settings.lateBy);
+  els.magnify.value = "1";
+  state.magnify = 1;
+  state.timeZoom = 1;
+  const times = state.view.times;
+  state.hairlineTime = times[Math.floor(times.length / 2)] || 0;
+  els.reviewTitle.textContent = eventName || state.settings.eventName || "Race";
+  els.demoBanner.hidden = !demo;
+  if (demo) {
+    state.settings.lateBy = 0;
+    els.delay.value = "0";
+    els.demoBanner.textContent =
+      "Practice finish. Bibs 12, 7, 21 and 3 meet the line at 10.000, 10.250, 10.500 and 10.750. The cyan edge is the torso. Flip is on so the numbers read correctly.";
+    for (const runner of [
+      { name: "12", time: 10 },
+      { name: "7", time: 10.25 },
+      { name: "21", time: 10.5 },
+      { name: "3", time: 10.75 },
+    ]) {
+      addMarkAt(runner.time, runner.name);
+    }
+    state.hairlineTime = 10;
+    state.selectedId = null;
+  }
+  renderResults();
+  show("review");
+  requestAnimationFrame(() => {
+    resizeReview();
+    state.timeZoom = defaultTimeZoom();
+    els.timeZoom.value = state.timeZoom.toFixed(2);
+    renderReview();
+  });
+}
+
+function defaultTimeZoom() {
+  const layout = state.view.layout;
+  const pxPerSec = 1 / layout.secPerPixel;
+  const cssWidth = els.photo.clientWidth || els.photoWrap.clientWidth || window.innerWidth || 360;
+  const zoom = cssWidth / (pxPerSec * 6);
+  return clamp(zoom, 0.15, 6);
+}
+
+function visibleLayoutWidth() {
+  const cssWidth = els.photo.clientWidth || 1;
+  return cssWidth / state.timeZoom;
+}
+
+function viewLeft() {
+  const hairX = xAtTime(state.view.layout, state.hairlineTime);
+  return hairX - visibleLayoutWidth() / 2;
+}
+
+function official(raw) {
+  return raw - Number(state.settings.lateBy || 0);
+}
+
+function timeBounds() {
+  const segs = state.view?.layout.segments || [];
+  if (!segs.length) return [0, 0];
+  return [segs[0].tFirst, segs[segs.length - 1].tLast];
+}
+
+function resizeReview() {
+  if (!state.view) return;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const photoWidth = Math.max(2, Math.round(els.photo.clientWidth * dpr));
+  const photoHeight = Math.max(2, Math.round(els.photo.clientHeight * dpr));
+  if (els.photo.width !== photoWidth || els.photo.height !== photoHeight) {
+    els.photo.width = photoWidth;
+    els.photo.height = photoHeight;
+  }
+  const rulerWidth = photoWidth;
+  const rulerHeight = Math.max(2, Math.round(32 * dpr));
+  if (els.ruler.width !== rulerWidth || els.ruler.height !== rulerHeight) {
+    els.ruler.width = rulerWidth;
+    els.ruler.height = rulerHeight;
+  }
+  const wide = window.innerWidth >= 1000;
+  if (!wide) {
+    const base = Math.min(window.innerHeight * 0.42, 460);
+    els.photoWrap.style.height = `${Math.round(base * state.magnify)}px`;
+  } else {
+    els.photoWrap.style.height = "100%";
+  }
+}
+
+function renderReview() {
+  if (state.screen !== "review" || !state.view) return;
+  resizeReview();
+  const layout = state.view.layout;
+  const [minT, maxT] = timeBounds();
+  const pad = layout.dt * 0.5;
+  state.hairlineTime = clamp(state.hairlineTime, minT - pad, maxT + pad);
+  const left = viewLeft();
+  const vis = visibleLayoutWidth();
+  state.view.draw(photoCtx, left, vis, els.mirror.checked);
+  drawMarkLines();
+  drawRuler(left, vis);
+  const gap = gapAt(layout, xAtTime(layout, state.hairlineTime));
+  const shown = official(state.hairlineTime);
+  els.heroTime.textContent = formatRaceTime(shown);
+  els.heroCaption.textContent = gap
+    ? `Gap in the recording · ${formatRaceTime(official(gap.tBefore), 1)} to ${formatRaceTime(official(gap.tAfter), 1)}`
+    : "Front of the torso on the line";
+  positionMarkLabels(left, vis);
+  const fps = 1 / layout.dt;
+  const dropped = droppedFrames(state.view.times, layout.dt);
+  els.accuracyNote.textContent = `About ${fps.toFixed(0)} fps, so each frame is ${formatRaceTime(layout.dt, 3)} s. ${dropped} dropped frame${dropped === 1 ? "" : "s"}. Times follow the centre line.`;
+  els.sliceValue.textContent = `${state.view.sliceWidth} px`;
+  els.timeZoomValue.textContent = `${state.timeZoom.toFixed(2)}×`;
+  els.magnifyValue.textContent = `${state.magnify.toFixed(1)}×`;
+  els.slitValue.textContent = `${state.view.slitShift} px`;
+  els.delayValue.textContent = `${Number(state.settings.lateBy).toFixed(2)} s`;
+  els.nudgeCaption.textContent = state.selectedId ? "Moves the selected mark" : "Moves the centre line";
+}
+
+function drawMarkLines() {
+  const ctx = photoCtx;
+  const width = els.photo.width;
+  const height = els.photo.height;
+  const left = viewLeft();
+  const vis = visibleLayoutWidth();
+  for (const mark of ranked()) {
+    const photoX = xAtTime(state.view.layout, mark.time);
+    const screen = photoToScreenX({
+      viewLeft: left,
+      viewW: vis,
+      photoX,
+      mirror: els.mirror.checked,
+    });
+    const deviceX = (screen / vis) * width;
+    if (deviceX < -2 || deviceX > width + 2) continue;
+    ctx.strokeStyle = mark.color;
+    ctx.lineWidth = mark.id === state.selectedId ? 3 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(deviceX, 0);
+    ctx.lineTo(deviceX, height);
+    ctx.stroke();
+  }
+}
+
+function drawRuler(left, vis) {
+  const canvas = els.ruler;
+  const ctx = rulerCtx;
+  const dpr = canvas.width / Math.max(1, canvas.clientWidth);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#0e1218";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const pxPerSec = 1 / state.view.layout.secPerPixel;
+  const cssPerSec = (pxPerSec * state.timeZoom);
+  const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30];
+  let step = 10;
+  for (const candidate of steps) {
+    if (candidate * cssPerSec >= 64) {
+      step = candidate;
+      break;
+    }
+  }
+  const tA = official(timeAtX(state.view.layout, left));
+  const tB = official(timeAtX(state.view.layout, left + vis));
+  const minT = Math.min(tA, tB);
+  const maxT = Math.max(tA, tB);
+  const digits = step < 0.1 ? 2 : 1;
+  ctx.fillStyle = "#d5dbe6";
+  ctx.font = `${Math.round(11 * dpr)}px ${getComputedStyle(document.body).fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.strokeStyle = "rgba(255,255,255,0.4)";
+  ctx.lineWidth = 1;
+  const first = Math.ceil((minT - 1e-6) / step);
+  const last = Math.floor((maxT + 1e-6) / step);
+  for (let i = first; i <= last; i++) {
+    const tick = i * step;
+    const photoX = xAtTime(state.view.layout, tick + Number(state.settings.lateBy));
+    const screen = photoToScreenX({
+      viewLeft: left,
+      viewW: vis,
+      photoX,
+      mirror: els.mirror.checked,
+    });
+    const deviceX = (screen / vis) * canvas.width;
+    ctx.beginPath();
+    ctx.moveTo(deviceX, canvas.height - 7 * dpr);
+    ctx.lineTo(deviceX, canvas.height);
+    ctx.stroke();
+    ctx.fillText(formatRaceTime(tick, digits), deviceX, 4 * dpr);
+  }
+}
+
+function ranked() {
+  return [...state.marks].sort((a, b) => a.time - b.time || a.order - b.order);
+}
+
+function renderResults() {
+  const list = ranked();
+  els.resultCount.textContent = String(list.length);
+  els.resultsEmpty.hidden = list.length > 0;
+  els.results.innerHTML = "";
+  list.forEach((mark, index) => {
+    const item = document.createElement("li");
+    item.className = "result" + (mark.id === state.selectedId ? " selected" : "");
+    item.dataset.id = mark.id;
+    const place = document.createElement("span");
+    place.className = "place";
+    place.style.background = mark.color;
+    place.textContent = String(index + 1);
+    const input = document.createElement("input");
+    input.className = "bib";
+    input.value = mark.name;
+  input.placeholder = "Bib / name";
+  input.autocomplete = "off";
+  input.setAttribute("aria-label", `Name for place ${index + 1}`);
+    const time = document.createElement("span");
+    time.className = "result-time";
+    time.textContent = formatRaceTime(official(mark.time));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "icon-btn";
+    remove.setAttribute("aria-label", `Remove place ${index + 1}`);
+    remove.textContent = "×";
+    item.append(place, input, time, remove);
+    els.results.append(item);
+  });
+}
+
+function positionMarkLabels(left, vis) {
+  els.marksLayer.innerHTML = "";
+  const width = els.photo.clientWidth;
+  ranked().forEach((mark, index) => {
+    const photoX = xAtTime(state.view.layout, mark.time);
+    const screen = photoToScreenX({
+      viewLeft: left,
+      viewW: vis,
+      photoX,
+      mirror: els.mirror.checked,
+    });
+    const cssX = (screen / vis) * width;
+    if (cssX < -40 || cssX > width + 40) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mark-label" + (mark.id === state.selectedId ? " selected" : "");
+    button.style.left = `${cssX}px`;
+    button.style.top = `${8 + (index % 3) * 22}px`;
+    button.textContent = `${index + 1}  ${formatRaceTime(official(mark.time), 2)}`;
+    button.dataset.id = mark.id;
+    els.marksLayer.append(button);
+  });
+}
+
+function addMarkAt(time, name = "") {
+  const mark = {
+    id: uid(),
+    time,
+    name,
+    order: ++state.markSeq,
+    color: COLORS[state.marks.length % COLORS.length],
+  };
+  state.marks.push(mark);
+  state.selectedId = mark.id;
+  return mark;
+}
+
+function addMark() {
+  const existing = state.marks.find((mark) => Math.abs(mark.time - state.hairlineTime) < 0.012);
+  if (existing) {
+    state.selectedId = existing.id;
+    toast("That spot is already marked");
+    renderResults();
+    renderReview();
+    return;
+  }
+  addMarkAt(state.hairlineTime);
+  navigator.vibrate?.(12);
+  toast(`Marked ${formatRaceTime(official(state.hairlineTime))}`);
+  renderResults();
+  renderReview();
+}
+
+function selectMark(id, follow = true) {
+  state.selectedId = id;
+  const mark = state.marks.find((item) => item.id === id);
+  if (mark && follow) state.hairlineTime = mark.time;
+  renderResults();
+  renderReview();
+}
+
+function removeMark(id) {
+  state.marks = state.marks.filter((mark) => mark.id !== id);
+  if (state.selectedId === id) state.selectedId = null;
+  renderResults();
+  renderReview();
+}
+
+function nudge(delta) {
+  if (state.selectedId) {
+    const mark = state.marks.find((item) => item.id === state.selectedId);
+    if (!mark) return;
+    const [minT, maxT] = timeBounds();
+    mark.time = clamp(mark.time + delta, minT, maxT);
+    state.hairlineTime = mark.time;
+  } else {
+    state.hairlineTime += delta;
+  }
+  state.inertia = 0;
+  renderResults();
+  renderReview();
+}
+
+function syncSlitRange() {
+  const maxShift = state.view ? state.view.maxSlitShift() : 8;
+  els.slit.min = String(-maxShift);
+  els.slit.max = String(maxShift);
+  if (Math.abs(Number(els.slit.value)) > maxShift) els.slit.value = "0";
+}
+
+function applyViewOptions() {
+  if (!state.view) return;
+  const previousSlice = state.view.sliceWidth;
+  const nextSlice = Number(els.slice.value);
+  state.view.setOptions({
+    sliceWidth: nextSlice,
+    slitShift: Number(els.slit.value),
+  });
+  if (previousSlice !== state.view.sliceWidth && previousSlice > 0) {
+    state.timeZoom = clamp(state.timeZoom * (previousSlice / state.view.sliceWidth), 0.15, 6);
+    els.timeZoom.value = state.timeZoom.toFixed(2);
+  }
+  state.settings.sliceWidth = state.view.sliceWidth;
+  saveSettings();
+  syncSlitRange();
+  renderReview();
+}
+
+function resultsText() {
+  const lines = [`${els.reviewTitle.textContent}`];
+  ranked().forEach((mark, index) => {
+    const name = mark.name.trim() || "—";
+    lines.push(`${index + 1}. ${formatRaceTime(official(mark.time))}  ${name}`);
+  });
+  return lines.join("\n");
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function buildCsv() {
+  const layout = state.view.layout;
+  const lines = [
+    `Event,${csvEscape(els.reviewTitle.textContent)}`,
+    `Start delay subtracted (s),${Number(state.settings.lateBy).toFixed(3)}`,
+    `Frame step (s),${layout.dt.toFixed(4)}`,
+    `Frames per second,${(1 / layout.dt).toFixed(2)}`,
+    "",
+    "Place,Time,Name",
+  ];
+  ranked().forEach((mark, index) => {
+    lines.push(`${index + 1},${official(mark.time).toFixed(3)},${csvEscape(mark.name.trim())}`);
+  });
+  return `\uFEFF${lines.join("\n")}`;
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function fileSlug() {
+  const name = (els.reviewTitle.textContent || "finish").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+  return `${name || "finish"}-${stamp}`;
+}
+
+function exportX(rawTime, layout, width) {
+  const photoX = xAtTime(layout, rawTime);
+  const screen = photoToScreenX({
+    viewLeft: 0,
+    viewW: layout.totalWidth,
+    photoX,
+    mirror: els.mirror.checked,
+  });
+  return (screen / Math.max(1, layout.totalWidth)) * width;
+}
+
+function renderExportCanvas() {
+  const view = state.view;
+  const layout = view.layout;
+  const list = ranked();
+  let scale = Math.min(1, 8192 / Math.max(1, layout.totalWidth));
+  const rowH = 32;
+  const header = 78;
+  const rulerH = 36;
+  const footer = 40;
+  let photoH = Math.max(1, Math.round(view.store.height * scale));
+  let width = Math.max(640, Math.round(layout.totalWidth * scale));
+  const tableH = 48 + Math.max(1, list.length) * rowH;
+  let height = header + rulerH + photoH + tableH + footer;
+  while (width * height > 14e6 && scale > 0.15) {
+    scale *= 0.85;
+    photoH = Math.max(1, Math.round(view.store.height * scale));
+    width = Math.max(640, Math.round(layout.totalWidth * scale));
+    height = header + rulerH + photoH + tableH + footer;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  if (canvas.width !== width || canvas.height !== height) {
+    throw new Error("This finish is too large to save as one image on this device.");
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#090b10";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#ffb000";
+  ctx.font = "600 14px Barlow, sans-serif";
+  ctx.fillText("HKSC PHOTO FINISH", 20, 28);
+  ctx.fillStyle = "#f4f7fb";
+  ctx.font = '700 28px "Barlow Condensed", sans-serif';
+  ctx.fillText(els.reviewTitle.textContent || "Race", 20, 58);
+  ctx.fillStyle = "#9aa3b2";
+  ctx.font = "14px Barlow, sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText(new Date().toLocaleString(), width - 20, 40);
+  ctx.textAlign = "left";
+
+  const photoY = header + rulerH;
+  const photoCanvas = document.createElement("canvas");
+  photoCanvas.width = width;
+  photoCanvas.height = photoH;
+  view.draw(photoCanvas.getContext("2d"), 0, layout.totalWidth, els.mirror.checked);
+  ctx.drawImage(photoCanvas, 0, photoY);
+
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.fillStyle = "#d5dbe6";
+  ctx.font = "12px Barlow, sans-serif";
+  const pxPerSec = (width / Math.max(0.001, timeBounds()[1] - timeBounds()[0]));
+  const step = pxPerSec > 180 ? 0.1 : pxPerSec > 70 ? 0.5 : 1;
+  const [minRaw, maxRaw] = timeBounds();
+  const late = Number(state.settings.lateBy);
+  const firstTick = Math.ceil((minRaw - late) / step - 1e-6);
+  const lastTick = Math.floor((maxRaw - late) / step + 1e-6);
+  for (let i = firstTick; i <= lastTick; i++) {
+    const tick = i * step;
+    const x = exportX(tick + late, layout, width);
+    ctx.beginPath();
+    ctx.moveTo(x, header + rulerH - 8);
+    ctx.lineTo(x, header + rulerH);
+    ctx.stroke();
+    ctx.fillText(formatRaceTime(tick, step < 0.1 ? 2 : 1), x + 4, header + 16);
+  }
+
+  list.forEach((mark, index) => {
+    const x = exportX(mark.time, layout, width);
+    ctx.strokeStyle = mark.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, photoY);
+    ctx.lineTo(x, photoY + photoH);
+    ctx.stroke();
+    const previous = index > 0 ? exportX(list[index - 1].time, layout, width) : null;
+    if (previous == null || Math.abs(x - previous) > 72) {
+      const label = `${index + 1} ${formatRaceTime(official(mark.time), 2)}`;
+      ctx.font = "700 14px Barlow, sans-serif";
+      const box = ctx.measureText(label).width + 12;
+      ctx.fillStyle = mark.color;
+      ctx.fillRect(Math.min(x + 4, width - box - 8), photoY + 8, box, 20);
+      ctx.fillStyle = "#111";
+      ctx.fillText(label, Math.min(x + 10, width - box), photoY + 23);
+    }
+  });
+
+  let y = photoY + photoH + 28;
+  ctx.fillStyle = "#f4f7fb";
+  ctx.font = "700 16px Barlow, sans-serif";
+  ctx.fillText("Results", 20, y);
+  y += 12;
+  list.forEach((mark, index) => {
+    y += rowH;
+    ctx.fillStyle = index % 2 ? "#141922" : "#10141b";
+    ctx.fillRect(16, y - 22, width - 32, rowH - 4);
+    ctx.fillStyle = mark.color;
+    ctx.fillRect(24, y - 16, 8, 20);
+    ctx.fillStyle = "#f4f7fb";
+    ctx.font = "600 16px Barlow, sans-serif";
+    ctx.fillText(String(index + 1), 42, y);
+    ctx.font = "700 16px JetBrains Mono, monospace";
+    ctx.fillText(formatRaceTime(official(mark.time)), 78, y);
+    ctx.font = "16px Barlow, sans-serif";
+    ctx.fillText(mark.name.trim() || "—", 210, y);
+  });
+  ctx.fillStyle = "#9aa3b2";
+  ctx.font = "13px Barlow, sans-serif";
+  const direction = els.mirror.checked ? "Time runs from right to left." : "Time runs from left to right.";
+  ctx.fillText(`Time is read at the front of the torso. ${direction}`, 20, height - 16);
+  return canvas;
+}
+
+async function photoBlob() {
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const canvas = renderExportCanvas();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("The browser could not encode the image.");
+  return blob;
+}
+
+async function savePhoto() {
+  try {
+    els.savePhoto.disabled = true;
+    els.savePhoto.textContent = "Preparing…";
+    const blob = await photoBlob();
+    downloadBlob(blob, `${fileSlug()}.png`);
+    toast("Photo saved");
+  } catch (error) {
+    toast(error.message || "Could not save the photo");
+  } finally {
+    els.savePhoto.disabled = false;
+    els.savePhoto.textContent = "Save photo";
+  }
+}
+
+function saveCsv() {
+  const blob = new Blob([buildCsv()], { type: "text/csv;charset=utf-8" });
+  downloadBlob(blob, `${fileSlug()}.csv`);
+  toast("Times saved");
+}
+
+async function shareFinish() {
+  try {
+    els.shareBtn.disabled = true;
+    const blob = await photoBlob();
+    const file = new File([blob], `${fileSlug()}.png`, { type: "image/png" });
+    const payload = { title: els.reviewTitle.textContent, text: resultsText(), files: [file] };
+    if (navigator.canShare?.(payload)) {
+      await navigator.share(payload);
+      return;
+    }
+    downloadBlob(blob, file.name);
+    toast("Sharing isn't available here, so the photo was saved instead.");
+  } catch (error) {
+    if (error?.name !== "AbortError") toast(error.message || "Could not share the photo");
+  } finally {
+    els.shareBtn.disabled = false;
+  }
+}
+
+function bindReviewGestures() {
+  const pointers = new Map();
+  let drag = null;
+
+  const stopInertia = () => {
+    state.inertia = 0;
+  };
+
+  els.stage.addEventListener("pointerdown", (event) => {
+    if (event.target.closest(".mark-label")) return;
+    els.stage.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    stopInertia();
+    if (pointers.size === 1) {
+      drag = {
+        startX: event.clientX,
+        startHairX: xAtTime(state.view.layout, state.hairlineTime),
+        lastX: event.clientX,
+        lastTime: performance.now(),
+        zoom: state.timeZoom,
+        dist: 0,
+        moved: false,
+      };
+    } else if (pointers.size === 2 && drag) {
+      const [a, b] = [...pointers.values()];
+      drag.dist = Math.hypot(a.x - b.x, a.y - b.y);
+      drag.zoom = state.timeZoom;
+      drag.moved = true;
+    }
+  });
+
+  els.stage.addEventListener("pointermove", (event) => {
+    if (!pointers.has(event.pointerId) || !state.view || !drag) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size >= 2) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      if (drag.dist > 8) {
+        state.timeZoom = clamp(drag.zoom * (dist / drag.dist), 0.15, 6);
+        els.timeZoom.value = state.timeZoom.toFixed(2);
+        requestRender();
+      }
+      return;
+    }
+    const now = performance.now();
+    const dx = event.clientX - drag.lastX;
+    const dt = now - drag.lastTime || 16;
+    drag.lastX = event.clientX;
+    drag.lastTime = now;
+    if (Math.abs(event.clientX - drag.startX) > 4) drag.moved = true;
+    const layoutDx = (event.clientX - drag.startX) / state.timeZoom;
+    const hairX = drag.startHairX + (els.mirror.checked ? layoutDx : -layoutDx);
+    state.hairlineTime = timeAtX(state.view.layout, hairX);
+    state.inertia = ((els.mirror.checked ? dx : -dx) / state.timeZoom) / dt;
+    requestRender();
+  });
+
+  const endPointer = (event) => {
+    pointers.delete(event.pointerId);
+    if (pointers.size > 0) return;
+    if (!drag?.moved && event.type === "pointerup") {
+      /* A tap on empty photo keeps the current line. */
+    }
+    if (drag && Math.abs(state.inertia) > 0.02 && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const velocity = state.inertia;
+      const step = (stamp) => {
+        if (!state.inertia || state.screen !== "review") return;
+        const hairX = xAtTime(state.view.layout, state.hairlineTime) + state.inertia * 16;
+        state.hairlineTime = timeAtX(state.view.layout, hairX);
+        state.inertia *= 0.92;
+        if (Math.abs(state.inertia) < 0.01) state.inertia = 0;
+        requestRender();
+        if (state.inertia) requestAnimationFrame(step);
+        return stamp;
+      };
+      state.inertia = velocity;
+      requestAnimationFrame(step);
+    }
+    drag = null;
+  };
+  els.stage.addEventListener("pointerup", endPointer);
+  els.stage.addEventListener("pointercancel", endPointer);
+
+  els.stage.addEventListener(
+    "wheel",
+    (event) => {
+      if (!state.view) return;
+      event.preventDefault();
+      const dx = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const hairX = xAtTime(state.view.layout, state.hairlineTime) + dx / state.timeZoom;
+      state.hairlineTime = timeAtX(state.view.layout, hairX);
+      requestRender();
+    },
+    { passive: false },
+  );
+
+  els.marksLayer.addEventListener("pointerdown", (event) => {
+    const label = event.target.closest(".mark-label");
+    if (!label) return;
+    event.stopPropagation();
+    selectMark(label.dataset.id, false);
+    const mark = state.marks.find((item) => item.id === label.dataset.id);
+    const originX = event.clientX;
+    const originTime = mark.time;
+    const move = (ev) => {
+      const layoutDx = (ev.clientX - originX) / state.timeZoom;
+      const photoDx = els.mirror.checked ? -layoutDx : layoutDx;
+      const [minT, maxT] = timeBounds();
+      const x = xAtTime(state.view.layout, originTime) + photoDx;
+      mark.time = clamp(timeAtX(state.view.layout, x), minT, maxT);
+      state.hairlineTime = mark.time;
+      requestRender();
+      renderResults();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  });
+}
+
+function requestRender() {
+  if (state.drawQueued) return;
+  state.drawQueued = true;
+  requestAnimationFrame(() => {
+    state.drawQueued = false;
+    renderReview();
+  });
+}
+
+function bindCameraGestures() {
+  const pointers = new Map();
+  let drag = null;
+  els.preview.addEventListener("pointerdown", (event) => {
+    if (state.capturing || state.lock) return;
+    els.preview.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) {
+      drag = { x: event.clientX, y: event.clientY, slit: state.slitNorm, pan: state.panYNorm, zoom: state.camZoom, dist: 0 };
+    } else if (pointers.size === 2 && drag) {
+      const [a, b] = [...pointers.values()];
+      drag.dist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  });
+  els.preview.addEventListener("pointermove", (event) => {
+    if (!pointers.has(event.pointerId) || !drag || state.lock) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const rect = els.preview.getBoundingClientRect();
+    if (pointers.size >= 2 && drag.dist > 8) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      state.camZoom = clamp(drag.zoom * (dist / drag.dist), 1, 4);
+      els.camZoom.value = String(state.camZoom);
+      els.zoomValue.textContent = `${state.camZoom.toFixed(1)}×`;
+      return;
+    }
+    const frW = (els.video.videoWidth || 1) / state.camZoom;
+    const frH = (els.video.videoHeight || 1) / state.camZoom;
+    state.slitNorm = clamp(drag.slit + ((event.clientX - drag.x) / rect.width) * (frW / (els.video.videoWidth || 1)), 0.04, 0.96);
+    state.panYNorm = clamp(drag.pan + ((event.clientY - drag.y) / rect.height) * (frH / (els.video.videoHeight || 1)), 0, 1);
+    els.line.value = String(state.slitNorm * 100);
+    els.lineValue.textContent = `${Math.round(state.slitNorm * 100)}%`;
+  });
+  const end = (event) => pointers.delete(event.pointerId);
+  els.preview.addEventListener("pointerup", end);
+  els.preview.addEventListener("pointercancel", end);
+}
+
+function bindResults() {
+  els.results.addEventListener("click", (event) => {
+    const item = event.target.closest(".result");
+    if (!item) return;
+    if (event.target.closest(".icon-btn")) {
+      removeMark(item.dataset.id);
+      return;
+    }
+    if (event.target.closest("input")) return;
+    selectMark(item.dataset.id, true);
+  });
+  els.results.addEventListener("input", (event) => {
+    const item = event.target.closest(".result");
+    if (!item || !event.target.classList.contains("bib")) return;
+    const mark = state.marks.find((entry) => entry.id === item.dataset.id);
+    if (mark) mark.name = event.target.value;
+  });
+}
+
+function bindKeyboard() {
+  window.addEventListener("keydown", (event) => {
+    if (event.target.matches("input, textarea")) return;
+    if (state.screen === "camera" && (event.key === " " || event.key === "Enter")) {
+      event.preventDefault();
+      els.primary.click();
+    }
+    if (state.screen !== "review") return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const sign = event.key === "ArrowLeft" ? -1 : 1;
+      nudge(sign * (event.shiftKey ? 0.1 : 0.01));
+    } else if (event.key === "m" || event.key === "M") {
+      addMark();
+    } else if ((event.key === "Delete" || event.key === "Backspace") && state.selectedId) {
+      event.preventDefault();
+      removeMark(state.selectedId);
+    }
+  });
+}
+
+function startPractice() {
+  els.practice.disabled = true;
+  const original = els.practice.textContent;
+  els.practice.textContent = "Building practice finish…";
+  try {
+    const demo = createDemoRecording();
+    enterReview(demo.store, { demo: true, eventName: state.settings.eventName || "Practice" });
+  } catch (error) {
+    toast(error.message || "The practice finish could not be built");
+  } finally {
+    els.practice.disabled = false;
+    els.practice.textContent = original;
+  }
+}
+
+function bind() {
+  applyHomeSettings();
+  els.eventName.addEventListener("input", () => {
+    state.settings.eventName = els.eventName.value;
+    saveSettings();
+  });
+  els.handsFree.addEventListener("change", () => {
+    state.settings.handsFree = els.handsFree.checked;
+    saveSettings();
+  });
+  document.querySelectorAll("[data-start]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settings.startMode = button.dataset.start;
+      if (state.settings.startMode !== "tap") state.settings.handsFree = true;
+      els.handsFree.checked = state.settings.handsFree;
+      saveSettings();
+      applyHomeSettings();
+    });
+  });
+  document.querySelectorAll("[data-buffer]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.settings.bufferMode = button.dataset.buffer;
+      state.settings.sliceWidth = state.settings.bufferMode === "long" ? 5 : 7;
+      saveSettings();
+      applyHomeSettings();
+    });
+  });
+  els.openCamera.addEventListener("click", () => openCamera());
+  els.practice.addEventListener("click", () => startPractice());
+  els.openHelp.addEventListener("click", () => openHelp());
+  els.closeCamera.addEventListener("click", () => leaveCamera());
+  els.cameraRetry.addEventListener("click", () => startStream());
+  els.cameraPractice.addEventListener("click", () => {
+    shutdownCamera();
+    startPractice();
+  });
+  els.primary.addEventListener("click", () => {
+    if (state.countdownTimer) {
+      cancelCountdown();
+      return;
+    }
+    if (state.listening && state.clockStart == null) {
+      state.listening = false;
+      stopAudioInput();
+      syncCameraControls();
+      return;
+    }
+    if (state.clockStart == null) {
+      beginStart();
+      return;
+    }
+    if (!state.store && !state.capturing) {
+      startCapture();
+      return;
+    }
+    stopAndBuild();
+  });
+  els.secondary.addEventListener("click", () => togglePause());
+  els.discard.addEventListener("click", () => discardRace());
+  els.line.addEventListener("input", () => {
+    if (state.lock) return;
+    state.slitNorm = Number(els.line.value) / 100;
+    els.lineValue.textContent = `${Math.round(state.slitNorm * 100)}%`;
+  });
+  els.camZoom.addEventListener("input", () => {
+    if (state.lock) return;
+    state.camZoom = Number(els.camZoom.value);
+    els.zoomValue.textContent = `${state.camZoom.toFixed(1)}×`;
+  });
+  els.sensitivity.addEventListener("input", () => {
+    els.sensitivityValue.textContent = Number(els.sensitivity.value).toFixed(2);
+  });
+  document.querySelectorAll("[data-delta]").forEach((button) => {
+    button.addEventListener("click", () => nudge(Number(button.dataset.delta)));
+  });
+  els.markBtn.addEventListener("click", () => addMark());
+  els.slice.addEventListener("input", () => applyViewOptions());
+  els.slit.addEventListener("input", () => applyViewOptions());
+  els.timeZoom.addEventListener("input", () => {
+    state.timeZoom = Number(els.timeZoom.value);
+    requestRender();
+  });
+  els.magnify.addEventListener("input", () => {
+    state.magnify = Number(els.magnify.value);
+    requestRender();
+  });
+  els.mirror.addEventListener("change", () => {
+    state.settings.mirror = els.mirror.checked;
+    saveSettings();
+    requestRender();
+  });
+  els.delay.addEventListener("input", () => {
+    state.settings.lateBy = Number(els.delay.value);
+    saveSettings();
+    renderResults();
+    requestRender();
+  });
+  document.querySelectorAll("[data-delay]").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.delay.value = button.dataset.delay;
+      els.delay.dispatchEvent(new Event("input"));
+    });
+  });
+  els.clearMarks.addEventListener("click", () => {
+    state.marks = [];
+    state.selectedId = null;
+    renderResults();
+    renderReview();
+  });
+  els.newRace.addEventListener("click", () => {
+    state.view = null;
+    state.marks = [];
+    show("home");
+  });
+  els.savePhoto.addEventListener("click", () => savePhoto());
+  els.saveCsv.addEventListener("click", () => saveCsv());
+  els.shareBtn.addEventListener("click", () => shareFinish());
+  bindCameraGestures();
+  bindReviewGestures();
+  bindResults();
+  bindKeyboard();
+  resizeObserver = new ResizeObserver(() => {
+    if (state.screen === "review") requestRender();
+  });
+  resizeObserver.observe(els.photoWrap);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && state.screen === "camera" && state.clockStart != null) {
+      stayAwake();
+    }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (state.capturing || (state.screen === "camera" && state.clockStart != null)) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+  if (new URLSearchParams(location.search).has("demo")) startPractice();
+}
+
+previewCtx = els.preview.getContext("2d");
+photoCtx = els.photo.getContext("2d");
+rulerCtx = els.ruler.getContext("2d");
+bind();

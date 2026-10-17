@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#090b10" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Time every runner from one finish-line photo using the phone camera." />
+    <title>HKSC Photo Finish</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <section id="screen-home" class="screen">
+      <div class="home-inner">
+        <p class="eyebrow">HKSC Sports</p>
+        <h1>Photo Finish</h1>
+        <p class="lede">
+          Aim the camera across the finish line. The app keeps that line and turns the
+          recording into one picture where every runner has a time.
+        </p>
+
+        <div id="file-banner" class="banner" hidden>
+          Open this page from a local server. The camera and this app do not run from a
+          file:// address.
+        </div>
+
+        <label class="field">
+          <span>Event</span>
+          <input id="event-name" type="text" maxlength="60" autocomplete="off" />
+        </label>
+
+        <div class="field">
+          <span id="start-mode-label">Start the clock</span>
+          <div class="segment" role="radiogroup" aria-labelledby="start-mode-label">
+            <button type="button" class="seg" data-start="tap" aria-pressed="true">Tap</button>
+            <button type="button" class="seg" data-start="sound" aria-pressed="false">Sound</button>
+            <button type="button" class="seg" data-start="countdown" aria-pressed="false">3-2-1</button>
+          </div>
+        </div>
+
+        <label class="check">
+          <input id="hands-free" type="checkbox" />
+          <span>Record as soon as the clock starts</span>
+        </label>
+
+        <div class="field">
+          <span id="buffer-mode-label">Finish detail</span>
+          <div class="segment" role="radiogroup" aria-labelledby="buffer-mode-label">
+            <button type="button" class="seg" data-buffer="sharp" aria-pressed="true">Sharp</button>
+            <button type="button" class="seg" data-buffer="long" aria-pressed="false">Longer</button>
+          </div>
+          <p class="hint" id="buffer-hint">Sharp keeps a wider slit and a shorter recording.</p>
+        </div>
+
+        <ol class="steps">
+          <li><strong>Line it up.</strong> Stand to the side and lay the white line on the finish.</li>
+          <li><strong>Start at the gun.</strong> Then record while the runners come through.</li>
+          <li><strong>Mark the torso.</strong> Scroll the photo and read each time on the centre line.</li>
+        </ol>
+
+        <button type="button" class="btn primary" id="open-camera">Open camera</button>
+        <button type="button" class="btn ghost" id="practice">Try a practice finish</button>
+        <button type="button" class="text-btn" id="open-help">How the times work</button>
+      </div>
+    </section>
+
+    <section id="screen-camera" class="screen camera" hidden>
+      <canvas id="preview"></canvas>
+      <div class="camera-top">
+        <div class="camera-top-row">
+          <button type="button" class="text-btn light" id="close-camera">Close</button>
+          <p class="pill" id="camera-status">Starting camera…</p>
+        </div>
+        <p class="camera-event" id="camera-event"></p>
+      </div>
+      <div class="countdown" id="countdown" hidden>
+        <p id="countdown-num">3</p>
+      </div>
+      <div class="camera-error" id="camera-error" hidden>
+        <p id="camera-error-text"></p>
+        <button type="button" class="btn primary" id="camera-retry">Try again</button>
+        <button type="button" class="btn ghost" id="camera-practice">Practice finish</button>
+      </div>
+      <div class="dock">
+        <div class="clock-row">
+          <p class="clock" id="clock" aria-hidden="true">0.00</p>
+          <p class="sr-only" id="clock-sr" aria-live="polite"></p>
+          <p class="hold" id="hold-label"></p>
+        </div>
+        <div class="buffer" id="buffer" hidden>
+          <div class="buffer-fill" id="buffer-fill"></div>
+          <span id="buffer-label"></span>
+        </div>
+        <canvas id="live-strip" class="live-strip" hidden></canvas>
+        <div class="meter" id="meter-wrap" hidden>
+          <div class="meter-fill" id="meter-fill"></div>
+        </div>
+        <label class="slider" id="sensitivity-wrap" hidden>
+          <span>Clap sensitivity <b id="sensitivity-value">0.28</b></span>
+          <input id="sensitivity" type="range" min="0.05" max="0.9" step="0.01" value="0.28" />
+        </label>
+        <label class="slider">
+          <span>Finish line <b id="line-value">50%</b></span>
+          <input id="line" type="range" min="4" max="96" step="0.5" value="50" />
+        </label>
+        <label class="slider">
+          <span>Zoom <b id="zoom-value">1.0×</b></span>
+          <input id="cam-zoom" type="range" min="1" max="4" step="0.05" value="1" />
+        </label>
+        <p class="hint" id="camera-hint"></p>
+        <button type="button" class="btn primary" id="primary">Start clock</button>
+        <button type="button" class="btn ghost" id="secondary" hidden>Pause</button>
+        <button type="button" class="text-btn light" id="discard" hidden>Discard race</button>
+      </div>
+      <video id="video" playsinline muted autoplay></video>
+    </section>
+
+    <section id="screen-review" class="screen review" hidden>
+      <header class="review-bar">
+        <div>
+          <p class="eyebrow">Finish photo</p>
+          <h2 id="review-title">Race</h2>
+        </div>
+        <button type="button" class="btn ghost slim" id="new-race">New race</button>
+      </header>
+      <p class="banner" id="demo-banner" hidden></p>
+      <div class="hero-block">
+        <p class="hero-time" id="hero-time">0.000</p>
+        <p class="hero-caption" id="hero-caption">Front of the torso on the line</p>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="ruler"></canvas>
+        <div class="photo-wrap" id="photo-wrap">
+          <canvas id="photo"></canvas>
+          <div class="marks-layer" id="marks-layer"></div>
+        </div>
+        <div class="hairline" aria-hidden="true"></div>
+      </div>
+      <div class="tools">
+        <div class="nudge" aria-label="Move by a hundredth or a tenth">
+          <button type="button" class="btn ghost slim" id="nudge-back-tenth" data-delta="-0.1">−0.10</button>
+          <button type="button" class="btn ghost slim" id="nudge-back" data-delta="-0.01">−0.01</button>
+          <button type="button" class="btn primary mark-btn" id="mark-btn">Mark</button>
+          <button type="button" class="btn ghost slim" id="nudge-forward" data-delta="0.01">+0.01</button>
+          <button type="button" class="btn ghost slim" id="nudge-forward-tenth" data-delta="0.1">+0.10</button>
+        </div>
+        <p class="hint center" id="nudge-caption">Moves the centre line</p>
+        <label class="slider">
+          <span>Slice width <b id="slice-value">7 px</b></span>
+          <input id="slice" type="range" min="1" max="21" step="1" value="7" />
+        </label>
+        <p class="hint">Narrower if bodies look stretched or doubled. Wider if they look thin or broken.</p>
+        <details class="adjust" id="adjust">
+          <summary>Zoom, flip, and start delay</summary>
+          <label class="slider">
+            <span>Time zoom <b id="time-zoom-value">1.0×</b></span>
+            <input id="time-zoom" type="range" min="0.15" max="6" step="0.01" value="1" />
+          </label>
+          <label class="slider">
+            <span>Photo height <b id="magnify-value">1.0×</b></span>
+            <input id="magnify" type="range" min="0.7" max="2.4" step="0.05" value="1" />
+          </label>
+          <label class="slider">
+            <span>Slit nudge <b id="slit-value">0 px</b></span>
+            <input id="slit" type="range" min="-8" max="8" step="1" value="0" />
+          </label>
+          <label class="check">
+            <input id="mirror" type="checkbox" />
+            <span>Flip image so bibs read the right way</span>
+          </label>
+          <label class="slider">
+            <span>Subtract start delay <b id="delay-value">0.00 s</b></span>
+            <input id="delay" type="range" min="0" max="1" step="0.01" value="0" />
+          </label>
+          <div class="preset-row">
+            <button type="button" class="btn ghost slim" data-delay="0">0</button>
+            <button type="button" class="btn ghost slim" data-delay="0.1">0.10</button>
+            <button type="button" class="btn ghost slim" data-delay="0.2">0.20</button>
+          </div>
+          <p class="hint" id="accuracy-note"></p>
+          <p class="hint">Keys: arrows 0.01 s, shift+arrows 0.10 s, M marks, Delete removes the selected mark.</p>
+        </details>
+        <div class="export-row">
+          <button type="button" class="btn primary" id="save-photo">Save photo</button>
+          <button type="button" class="btn ghost" id="save-csv">Save times</button>
+          <button type="button" class="btn ghost" id="share-btn">Share</button>
+        </div>
+      </div>
+      <div class="results-wrap">
+        <div class="results-head">
+          <h3>Results <span id="result-count">0</span></h3>
+          <button type="button" class="text-btn" id="clear-marks">Clear</button>
+        </div>
+        <p class="hint" id="results-empty">Scroll until the front of a torso meets the line, then Mark.</p>
+        <ol class="results" id="results"></ol>
+      </div>
+    </section>
+
+    <dialog id="help">
+      <div class="dialog-card">
+        <p class="eyebrow">How timing works</p>
+        <h2>The whole picture is the finish line</h2>
+        <p>
+          This is the same idea as a fully automatic photo finish. The camera does not
+          freeze one moment. It keeps a thin vertical strip on the finish and places each
+          moment beside the next. Moving left and right moves through time.
+        </p>
+        <ol class="steps">
+          <li>Put the phone a few metres to the side, held still, with the white line exactly on the finish. Portrait keeps more of each runner.</li>
+          <li>Start the clock when the race starts. Hit record as they arrive, or turn on recording with the clock if the phone is on a stand.</li>
+          <li>On the photo, put the centre line on the front of the torso — not the head, hands, or feet — and mark that time.</li>
+        </ol>
+        <p>
+          Slice width is how much of the picture is taken from each frame. Match it to the
+          runners so bodies look whole. The clock text is the time at the centre line.
+          A phone camera is usually 30 or 60 frames a second, so that is the real step
+          between pictures.
+        </p>
+        <button type="button" class="btn primary" id="help-close">Continue</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
