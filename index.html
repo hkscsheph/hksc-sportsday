@@ -101,6 +101,8 @@
           <span id="buffer-label"></span>
         </div>
         <canvas id="live-strip" class="live-strip" hidden></canvas>
+        <img id="snapshot-thumb" class="snapshot-thumb" alt="最新的相機快照" hidden />
+        <button type="button" class="text-btn light" id="save-live-snapshot" hidden>儲存這張快照</button>
         <div class="meter" id="meter-wrap" hidden>
           <div class="meter-fill" id="meter-fill"></div>
         </div>
@@ -117,6 +119,7 @@
           <input id="cam-zoom" type="range" min="1" max="4" step="0.05" value="1" />
         </label>
         <p class="hint" id="camera-hint"></p>
+        <button type="button" class="btn ghost" id="take-snapshot" hidden>拍攝快照</button>
         <button type="button" class="btn primary" id="primary">開始計時</button>
         <button type="button" class="btn ghost" id="secondary" hidden>暫停</button>
         <button type="button" class="text-btn light" id="discard" hidden>捨棄這場比賽</button>
@@ -137,6 +140,10 @@
         <p class="hero-time" id="hero-time">0.000</p>
         <p class="hero-caption" id="hero-caption">軀幹前端對準線上</p>
       </div>
+      <figure id="snapshot-panel" class="snapshot-panel" hidden>
+        <img id="snapshot-img" alt="這個時間的相機快照" />
+        <figcaption id="snapshot-caption"></figcaption>
+      </figure>
       <div class="stage" id="stage">
         <canvas id="ruler"></canvas>
         <div class="photo-wrap" id="photo-wrap">
@@ -191,6 +198,7 @@
         </details>
         <div class="export-row">
           <button type="button" class="btn primary" id="save-photo">儲存照片</button>
+          <button type="button" class="btn ghost" id="save-snapshot" hidden>儲存快照</button>
           <button type="button" class="btn ghost" id="save-csv">儲存成績</button>
           <button type="button" class="btn ghost" id="share-btn">分享</button>
         </div>
@@ -214,7 +222,7 @@
         </p>
         <ol class="steps">
           <li>把手機放在終點側面數公尺處並拿穩，白線要正好對準終點。直向拍攝能保留更多選手身影。</li>
-          <li>比賽開始時啟動計時。選手接近時再按錄影；若手機架在支架上，可讓計時一開始就錄影。</li>
+          <li>比賽開始時啟動計時。選手接近時再按錄影；若手機架在支架上，可讓計時一開始就錄影。錄影時會從相機擷取現場快照。</li>
           <li>在照片上把中線對準軀幹前端——不是頭、手或腳——再標記該時間。</li>
         </ol>
         <p>

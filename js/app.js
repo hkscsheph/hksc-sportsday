@@ -63,6 +63,12 @@ const els = {
   primary: $("primary"),
   secondary: $("secondary"),
   discard: $("discard"),
+  takeSnapshot: $("take-snapshot"),
+  snapshotThumb: $("snapshot-thumb"),
+  saveLiveSnapshot: $("save-live-snapshot"),
+  snapshotPanel: $("snapshot-panel"),
+  snapshotImg: $("snapshot-img"),
+  snapshotCaption: $("snapshot-caption"),
   reviewTitle: $("review-title"),
   demoBanner: $("demo-banner"),
   heroTime: $("hero-time"),
@@ -87,6 +93,7 @@ const els = {
   delayValue: $("delay-value"),
   accuracyNote: $("accuracy-note"),
   savePhoto: $("save-photo"),
+  saveSnapshot: $("save-snapshot"),
   saveCsv: $("save-csv"),
   shareBtn: $("share-btn"),
   resultCount: $("result-count"),
@@ -131,6 +138,10 @@ const state = {
   drawQueued: false,
   lastSrSecond: -1,
   liveStamp: 0,
+  snapshots: [],
+  snapshotGen: 0,
+  snapshotPending: false,
+  lastSnapshotAt: 0,
 };
 
 let previewCtx;
@@ -284,6 +295,7 @@ async function startStream() {
   }
   els.video.srcObject = state.stream;
   await els.video.play();
+  els.takeSnapshot.hidden = false;
   if (state.screen !== "camera") {
     releaseStream();
     return;
@@ -317,6 +329,7 @@ function startCameraLoop() {
       captureFrame(now);
     }
     drawPreview();
+    maybeCaptureSnapshot(now);
     updateClock(now);
     updateAudio();
     updateBufferUi();
@@ -349,6 +362,7 @@ function showCameraError(error) {
   els.cameraError.hidden = false;
   els.cameraErrorText.textContent = message;
   els.cameraStatus.textContent = "無法使用相機";
+  els.takeSnapshot.hidden = true;
 }
 
 function releaseStream() {
@@ -444,6 +458,131 @@ function captureFrame(now) {
   if (rolling && store.dropped === 1) {
     toast("記憶體已滿。只保留終點最新的一段——最後一位選手通過後請停止。");
   }
+}
+
+function revokeSnapshots() {
+  state.snapshotGen += 1;
+  state.snapshotPending = false;
+  for (const shot of state.snapshots) URL.revokeObjectURL(shot.url);
+  state.snapshots = [];
+  els.snapshotThumb.hidden = true;
+  els.snapshotThumb.removeAttribute("src");
+  els.saveLiveSnapshot.hidden = true;
+}
+
+function snapshotAt(time) {
+  const list = state.snapshots;
+  if (!list.length) return null;
+  let best = list[0];
+  let bestDist = Math.abs(best.time - time);
+  for (let i = 1; i < list.length; i++) {
+    const dist = Math.abs(list[i].time - time);
+    if (dist < bestDist) {
+      best = list[i];
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+function pushSnapshot(blob, time, gen) {
+  if (gen !== state.snapshotGen || !blob) return;
+  const url = URL.createObjectURL(blob);
+  state.snapshots.push({ time, url, blob });
+  while (state.snapshots.length > 80) {
+    const old = state.snapshots.shift();
+    URL.revokeObjectURL(old.url);
+  }
+  if (state.screen === "camera") {
+    els.snapshotThumb.hidden = false;
+    els.snapshotThumb.src = url;
+    els.saveLiveSnapshot.hidden = false;
+  }
+  if (state.screen === "review") renderSnapshot();
+}
+
+function videoFrameBlob(video) {
+  const maxW = 1600;
+  const scale = Math.min(1, maxW / video.videoWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
+  canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+}
+
+async function captureStillBlob() {
+  const video = els.video;
+  if (!video.videoWidth) return null;
+  const track = state.stream?.getVideoTracks?.()[0];
+  if (track && typeof ImageCapture !== "undefined") {
+    try {
+      const blob = await Promise.race([
+        new ImageCapture(track).takePhoto(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2500)),
+      ]);
+      if (blob?.size) return blob;
+    } catch {
+      /* The live video frame is still a real webcam picture. */
+    }
+  }
+  return videoFrameBlob(video);
+}
+
+function maybeCaptureSnapshot(now) {
+  if (!state.capturing || state.snapshotPending || !els.video.videoWidth) return;
+  if (now - state.lastSnapshotAt < 450) return;
+  state.lastSnapshotAt = now;
+  const time = state.clockStart == null ? 0 : Math.max(0, (now - state.clockStart) / 1000);
+  const gen = state.snapshotGen;
+  state.snapshotPending = true;
+  videoFrameBlob(els.video).then((blob) => {
+    state.snapshotPending = false;
+    pushSnapshot(blob, time, gen);
+  });
+}
+
+async function takeSnapshot() {
+  if (!els.video.videoWidth) {
+    toast("請等待相機畫面。");
+    return;
+  }
+  const time = state.clockStart == null ? 0 : Math.max(0, (performance.now() - state.clockStart) / 1000);
+  const gen = state.snapshotGen;
+  els.takeSnapshot.disabled = true;
+  try {
+    const blob = await captureStillBlob();
+    if (!blob) throw new Error("無法從相機取得快照");
+    pushSnapshot(blob, time, gen);
+    toast("已拍攝相機快照");
+  } catch (error) {
+    toast(error.message || "無法從相機取得快照");
+  } finally {
+    els.takeSnapshot.disabled = false;
+  }
+}
+
+function saveSnapshotFile(shot) {
+  if (!shot?.blob) {
+    toast("尚無相機快照");
+    return;
+  }
+  const type = shot.blob.type || "image/jpeg";
+  const ext = type.includes("png") ? "png" : "jpg";
+  downloadBlob(shot.blob, `${fileSlug()}-snapshot.${ext}`);
+  toast("快照已儲存");
+}
+
+function renderSnapshot() {
+  const shot = state.demo ? null : snapshotAt(state.hairlineTime);
+  els.snapshotPanel.hidden = !shot;
+  els.saveSnapshot.hidden = !shot;
+  if (!shot) return;
+  if (els.snapshotImg.dataset.url !== shot.url) {
+    els.snapshotImg.dataset.url = shot.url;
+    els.snapshotImg.src = shot.url;
+  }
+  els.snapshotCaption.textContent = `相機快照 · ${formatRaceTime(shot.time)}`;
 }
 
 function captureScratch(band, height) {
@@ -736,7 +875,7 @@ function leaveCamera() {
   show("home");
 }
 
-function shutdownCamera() {
+function shutdownCamera({ keepSnapshots = false } = {}) {
   cameraLoopGen += 1;
   clearTimeout(state.countdownTimer);
   state.countdownTimer = 0;
@@ -748,17 +887,27 @@ function shutdownCamera() {
   stopAudioInput();
   releaseWakeLock();
   releaseStream();
+  els.takeSnapshot.hidden = true;
+  if (!keepSnapshots) revokeSnapshots();
 }
 
-function stopAndBuild() {
+async function stopAndBuild() {
   if (!state.store || state.store.count < 2) {
     toast("請再錄久一點，再合成照片。");
     return;
   }
   state.capturing = false;
+  const time = state.clockStart == null ? 0 : Math.max(0, (performance.now() - state.clockStart) / 1000);
+  const gen = state.snapshotGen;
+  try {
+    const blob = await captureStillBlob();
+    pushSnapshot(blob, time, gen);
+  } catch {
+    /* Sampled webcam frames from the recording are still kept. */
+  }
   const store = state.store;
   const eventName = state.settings.eventName;
-  shutdownCamera();
+  shutdownCamera({ keepSnapshots: true });
   state.store = store;
   enterReview(store, { demo: false, eventName });
 }
@@ -783,6 +932,7 @@ function enterReview(store, { demo, eventName }) {
   state.timeZoom = 1;
   const times = state.view.times;
   state.hairlineTime = times[Math.floor(times.length / 2)] || 0;
+  if (demo) revokeSnapshots();
   els.reviewTitle.textContent = eventName || state.settings.eventName || "比賽";
   els.demoBanner.hidden = !demo;
   if (demo) {
@@ -891,6 +1041,7 @@ function renderReview() {
   els.slitValue.textContent = `${state.view.slitShift} px`;
   els.delayValue.textContent = `${Number(state.settings.lateBy).toFixed(2)} 秒`;
   els.nudgeCaption.textContent = state.selectedId ? "移動選取的標記" : "移動中線";
+  renderSnapshot();
 }
 
 function drawMarkLines() {
@@ -1166,7 +1317,7 @@ function exportX(rawTime, layout, width) {
   return (screen / Math.max(1, layout.totalWidth)) * width;
 }
 
-function renderExportCanvas() {
+function renderExportCanvas(snapshotImage) {
   const view = state.view;
   const layout = view.layout;
   const list = ranked();
@@ -1175,15 +1326,22 @@ function renderExportCanvas() {
   const header = 78;
   const rulerH = 36;
   const footer = 40;
+  const snapScale = snapshotImage ? snapshotImage.height / snapshotImage.width : 0;
+  const snapBlockFor = (w) => {
+    if (!snapshotImage) return 0;
+    return Math.min(Math.round(w * snapScale), Math.round(w * 0.75)) + 36;
+  };
   let photoH = Math.max(1, Math.round(view.store.height * scale));
   let width = Math.max(640, Math.round(layout.totalWidth * scale));
   const tableH = 48 + Math.max(1, list.length) * rowH;
-  let height = header + rulerH + photoH + tableH + footer;
+  let snapBlock = snapBlockFor(width);
+  let height = header + snapBlock + rulerH + photoH + tableH + footer;
   while (width * height > 14e6 && scale > 0.15) {
     scale *= 0.85;
     photoH = Math.max(1, Math.round(view.store.height * scale));
     width = Math.max(640, Math.round(layout.totalWidth * scale));
-    height = header + rulerH + photoH + tableH + footer;
+    snapBlock = snapBlockFor(width);
+    height = header + snapBlock + rulerH + photoH + tableH + footer;
   }
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -1206,7 +1364,16 @@ function renderExportCanvas() {
   ctx.fillText(new Date().toLocaleString("zh-Hant"), width - 20, 40);
   ctx.textAlign = "left";
 
-  const photoY = header + rulerH;
+  let cursor = header;
+  if (snapshotImage && snapBlock) {
+    ctx.fillStyle = "#ffb000";
+    ctx.font = `600 14px ${UI_FONT}`;
+    ctx.fillText("相機快照", 20, cursor + 22);
+    ctx.drawImage(snapshotImage, 0, cursor + 32, width, snapBlock - 36);
+    cursor += snapBlock;
+  }
+
+  const photoY = cursor + rulerH;
   const photoCanvas = document.createElement("canvas");
   photoCanvas.width = width;
   photoCanvas.height = photoH;
@@ -1226,10 +1393,10 @@ function renderExportCanvas() {
     const tick = i * step;
     const x = exportX(tick + late, layout, width);
     ctx.beginPath();
-    ctx.moveTo(x, header + rulerH - 8);
-    ctx.lineTo(x, header + rulerH);
+    ctx.moveTo(x, cursor + rulerH - 8);
+    ctx.lineTo(x, cursor + rulerH);
     ctx.stroke();
-    ctx.fillText(formatRaceTime(tick, step < 0.1 ? 2 : 1), x + 4, header + 16);
+    ctx.fillText(formatRaceTime(tick, step < 0.1 ? 2 : 1), x + 4, cursor + 16);
   }
 
   list.forEach((mark, index) => {
@@ -1278,9 +1445,20 @@ function renderExportCanvas() {
   return canvas;
 }
 
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("無法讀取相機快照"));
+    image.src = url;
+  });
+}
+
 async function photoBlob() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
-  const canvas = renderExportCanvas();
+  const shot = state.demo ? null : snapshotAt(state.hairlineTime);
+  const image = shot ? await loadImage(shot.url) : null;
+  const canvas = renderExportCanvas(image);
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("瀏覽器無法編碼這張圖片。");
   return blob;
@@ -1661,10 +1839,14 @@ function bind() {
     renderReview();
   });
   els.newRace.addEventListener("click", () => {
+    revokeSnapshots();
     state.view = null;
     state.marks = [];
     show("home");
   });
+  els.takeSnapshot.addEventListener("click", () => takeSnapshot());
+  els.saveLiveSnapshot.addEventListener("click", () => saveSnapshotFile(state.snapshots.at(-1)));
+  els.saveSnapshot.addEventListener("click", () => saveSnapshotFile(snapshotAt(state.hairlineTime)));
   els.savePhoto.addEventListener("click", () => savePhoto());
   els.saveCsv.addEventListener("click", () => saveCsv());
   els.shareBtn.addEventListener("click", () => shareFinish());
