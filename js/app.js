@@ -1213,9 +1213,22 @@ function renderResults() {
   });
 }
 
+function labelRow(placed, left, right) {
+  for (let row = 0; row < placed.length; row++) {
+    const hit = placed[row].some(([start, end]) => left < end + 6 && right > start - 6);
+    if (!hit) {
+      placed[row].push([left, right]);
+      return row;
+    }
+  }
+  placed.push([[left, right]]);
+  return placed.length - 1;
+}
+
 function positionMarkLabels(left, vis) {
   els.marksLayer.innerHTML = "";
   const width = els.photo.clientWidth;
+  const placed = [];
   ranked().forEach((mark, index) => {
     const photoX = xAtTime(state.view.layout, mark.time);
     const screen = photoToScreenX({
@@ -1225,15 +1238,17 @@ function positionMarkLabels(left, vis) {
       mirror: els.mirror.checked,
     });
     const cssX = (screen / vis) * width;
-    if (cssX < -40 || cssX > width + 40) return;
+    if (cssX < -80 || cssX > width + 80) return;
     const button = document.createElement("button");
     button.type = "button";
     button.className = "mark-label" + (mark.id === state.selectedId ? " selected" : "");
     button.style.left = `${cssX}px`;
-    button.style.top = `${8 + (index % 3) * 22}px`;
     button.textContent = `${index + 1}  ${formatRaceTime(official(mark.time), 2)}`;
     button.dataset.id = mark.id;
     els.marksLayer.append(button);
+    const box = button.offsetWidth || 72;
+    const row = labelRow(placed, cssX - box / 2, cssX + box / 2);
+    button.style.top = `${8 + row * 24}px`;
   });
 }
 
@@ -1459,25 +1474,7 @@ function renderExportCanvas(snapshotImage) {
     ctx.fillText(formatRaceTime(tick, step < 0.1 ? 2 : 1), x + 4, cursor + 16);
   }
 
-  list.forEach((mark, index) => {
-    const x = exportX(mark.time, layout, width);
-    ctx.strokeStyle = mark.color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(x, photoY);
-    ctx.lineTo(x, photoY + photoH);
-    ctx.stroke();
-    const previous = index > 0 ? exportX(list[index - 1].time, layout, width) : null;
-    if (previous == null || Math.abs(x - previous) > 72) {
-      const label = `${index + 1} ${formatRaceTime(official(mark.time), 2)}`;
-      ctx.font = `700 14px ${UI_FONT}`;
-      const box = ctx.measureText(label).width + 12;
-      ctx.fillStyle = mark.color;
-      ctx.fillRect(Math.min(x + 4, width - box - 8), photoY + 8, box, 20);
-      ctx.fillStyle = "#111";
-      ctx.fillText(label, Math.min(x + 10, width - box), photoY + 23);
-    }
-  });
+  drawStitchedMarks(ctx, list, layout, width, photoY, photoH);
 
   let y = photoY + photoH + 28;
   ctx.fillStyle = "#f4f7fb";
@@ -1502,6 +1499,76 @@ function renderExportCanvas(snapshotImage) {
   ctx.font = `13px ${UI_FONT}`;
   const direction = els.mirror.checked ? "時間由右至左。" : "時間由左至右。";
   ctx.fillText(`時間以軀幹前端為準。${direction}`, 20, height - 16);
+  return canvas;
+}
+
+function drawStitchedMarks(ctx, list, layout, width, photoY, photoH) {
+  const placed = [];
+  ctx.font = `700 14px ${UI_FONT}`;
+  ctx.textAlign = "left";
+  list.forEach((mark, index) => {
+    const x = exportX(mark.time, layout, width);
+    ctx.strokeStyle = mark.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x, photoY);
+    ctx.lineTo(x, photoY + photoH);
+    ctx.stroke();
+    const label = `${index + 1} ${formatRaceTime(official(mark.time), 2)}`;
+    const box = ctx.measureText(label).width + 12;
+    const left = clamp(x - box / 2, 4, Math.max(4, width - box - 4));
+    const row = labelRow(placed, left, left + box);
+    const top = photoY + 8 + row * 24;
+    ctx.fillStyle = mark.color;
+    ctx.fillRect(left, top, box, 20);
+    ctx.fillStyle = "#111";
+    ctx.fillText(label, left + 6, top + 15);
+  });
+}
+
+function renderStitchedCanvas() {
+  const view = state.view;
+  const layout = view.layout;
+  const list = ranked();
+  let scale = Math.min(1, 8192 / Math.max(1, layout.totalWidth));
+  const rulerH = 36;
+  let photoH = Math.max(1, Math.round(view.store.height * scale));
+  let width = Math.max(640, Math.round(layout.totalWidth * scale));
+  while (width * (rulerH + photoH) > 14e6 && scale > 0.15) {
+    scale *= 0.85;
+    photoH = Math.max(1, Math.round(view.store.height * scale));
+    width = Math.max(640, Math.round(layout.totalWidth * scale));
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = rulerH + photoH;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#090b10";
+  ctx.fillRect(0, 0, width, canvas.height);
+  const photoCanvas = document.createElement("canvas");
+  photoCanvas.width = width;
+  photoCanvas.height = photoH;
+  view.draw(photoCanvas.getContext("2d"), 0, layout.totalWidth, els.mirror.checked);
+  ctx.drawImage(photoCanvas, 0, rulerH);
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.fillStyle = "#d5dbe6";
+  ctx.font = `12px ${UI_FONT}`;
+  const pxPerSec = width / Math.max(0.001, timeBounds()[1] - timeBounds()[0]);
+  const step = pxPerSec > 180 ? 0.1 : pxPerSec > 70 ? 0.5 : 1;
+  const [minRaw, maxRaw] = timeBounds();
+  const late = Number(state.settings.lateBy);
+  const firstTick = Math.ceil((minRaw - late) / step - 1e-6);
+  const lastTick = Math.floor((maxRaw - late) / step + 1e-6);
+  for (let i = firstTick; i <= lastTick; i++) {
+    const tick = i * step;
+    const x = exportX(tick + late, layout, width);
+    ctx.beginPath();
+    ctx.moveTo(x, rulerH - 8);
+    ctx.lineTo(x, rulerH);
+    ctx.stroke();
+    ctx.fillText(formatRaceTime(tick, step < 0.1 ? 2 : 1), x + 4, 16);
+  }
+  drawStitchedMarks(ctx, list, layout, width, rulerH, photoH);
   return canvas;
 }
 
@@ -1545,10 +1612,18 @@ function saveCsv() {
   toast("成績已儲存");
 }
 
+async function stitchedBlob() {
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  const canvas = renderStitchedCanvas();
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("瀏覽器無法編碼這張圖片。");
+  return blob;
+}
+
 async function shareFinish() {
   try {
     els.shareBtn.disabled = true;
-    const blob = await photoBlob();
+    const blob = await stitchedBlob();
     const file = new File([blob], `${fileSlug()}.png`, { type: "image/png" });
     const payload = { title: els.reviewTitle.textContent, text: resultsText(), files: [file] };
     if (navigator.canShare?.(payload)) {
